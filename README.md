@@ -9,7 +9,7 @@ A discovery-first agent for planning M&A cloud migrations — across AWS, Azure,
 
 ## Executive Summary
 
-Every acquisition brings a new technical estate that must eventually move into the acquirer's certified cloud environment — AWS, Azure, or GCP, chosen by vendor relationship rather than by what the acquired company already runs. Today this discovery and planning work is manual: inventory is rebuilt from interviews and spreadsheets, cloud footprint and code and pipelines are assessed in silos, and migration strategy is chosen without a systematic view of time, resourcing, or compliance constraints.
+Every acquisition brings a new technical estate that must eventually move into the acquirer's certified cloud environment — AWS, Azure, or GCP, chosen by vendor relationship rather than by what the acquired company already runs. Today this discovery and planning work is semi automated but require lots of time and effort : inventory is rebuilt from interviews and spreadsheets, cloud footprint and code and pipelines are assessed in silos, and migration strategy is chosen without a systematic view of time, resourcing, or compliance constraints.
 
 **Sherpa** is a proposed open-source, agent-driven tool that automates this discovery and produces a concrete, constraint-aware migration plan. It scans an acquired company's cloud accounts, code repositories, and CI/CD pipelines; builds a unified inventory; and recommends — per workload — whether to lift-and-shift, re-platform, or re-architect, weighted by the time and resources available and by applicable compliance requirements (GDPR and others). It also accepts the acquirer's own libraries, pipeline templates, and process documentation, so recommendations favor patterns the acquiring company's teams already know and trust.
 
@@ -19,7 +19,7 @@ Publishing it as open source means every company facing this problem — not jus
 
 ## The Problem
 
-- Inventory is reconstructed manually — interviews and spreadsheets, not a shared system of record.
+- Inventory is reconstructed manually or semi automated way — interviews and spreadsheets, not a shared system of record.
 - Cloud footprint, code, and CI/CD pipelines are assessed separately, by different people, with no linkage between them.
 - Migration strategy (lift-and-shift vs. re-platform vs. re-architect) is chosen ad hoc, often without regard to the actual time and resourcing constraints of the deal.
 - Compliance exposure (GDPR and other regulations) is often checked late — sometimes after a migration plan is already locked in.
