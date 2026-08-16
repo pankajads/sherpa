@@ -1,0 +1,14 @@
+# Naming convention for companies that embed the app/service name as the LAST
+# segment of resource names, e.g.: prod-us-east-1-payments, staging-eu-west-1-auth
+#
+# Usage: sherpa discover ... --naming-convention examples/naming-conventions/name-suffix.yaml
+
+workload_tag_keys:
+  - Application
+  - application
+  - Service
+  - service
+
+name_separator: "-"
+name_part: "last"
+unassigned_label: "unassigned"

@@ -1,0 +1,18 @@
+# Naming convention for companies that group resources by team/squad tags
+# Common in Spotify-model orgs and companies with autonomous engineering squads.
+#
+# Usage: sherpa discover ... --naming-convention examples/naming-conventions/team-tag.yaml
+
+workload_tag_keys:
+  - Team
+  - team
+  - Squad
+  - squad
+  - Domain
+  - domain
+  - Owner
+  - owner
+
+name_separator: "-"
+name_part: "first"
+unassigned_label: "no-team"

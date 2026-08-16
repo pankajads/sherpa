@@ -1,0 +1,18 @@
+# Naming convention for companies using structured names like:
+#   {env}-{app}-{component}  e.g. prod-payments-api, staging-auth-worker
+# The app name is the SECOND segment (index 1).
+#
+# Two equivalent ways to express this:
+#
+# Option A — using name_part as an integer index:
+workload_tag_keys:
+  - Application
+  - app
+  - Service
+
+name_separator: "-"
+name_part: 1          # zero-based: 0=env, 1=app, 2=component
+unassigned_label: "unassigned"
+
+# Option B — using a regex (uncomment to use instead):
+# name_regex: '^[^-]+-(?P<workload>[^-]+)-'

@@ -1,0 +1,17 @@
+# Naming convention for companies that tag resources by cost center or business unit.
+# Common in large enterprises and financial services companies.
+#
+# Usage: sherpa discover ... --naming-convention examples/naming-conventions/cost-center.yaml
+
+workload_tag_keys:
+  - CostCenter
+  - cost-center
+  - BusinessUnit
+  - business-unit
+  - BU
+  - Department
+  - department
+
+name_separator: "-"
+name_part: "first"
+unassigned_label: "untagged"

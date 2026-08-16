@@ -1,0 +1,61 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sherpa"
+version = "0.1.0"
+description = "Agent-driven M&A cloud migration discovery and planning tool"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.0",
+    "aioboto3>=13.0",
+    "boto3>=1.35",
+    "PyGithub>=2.0",
+    "PyYAML>=6.0",
+    "sqlalchemy>=2.0",
+    "click>=8.1",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "moto[all]>=5.0",
+    "responses>=0.25",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+sherpa = "sherpa.cli.main:cli"
+
+[project.entry_points."sherpa.scanners"]
+"aws-cloud" = "sherpa.scanners.cloud.aws.scanner:AwsCloudScanner"
+"github-code" = "sherpa.scanners.code.github.scanner:GithubCodeScanner"
+"github-actions-pipeline" = "sherpa.scanners.pipeline.github_actions.scanner:GithubActionsScanner"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "--tb=short"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = [
+    "E501",   # line too long — handled by formatter
+    "B008",   # do not perform function calls in argument defaults
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "B904"]  # assert in tests; StopAsyncIteration re-raise pattern
+
+[tool.hatch.build.targets.wheel]
+packages = ["sherpa"]
