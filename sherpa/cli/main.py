@@ -30,7 +30,10 @@ def cli() -> None:
 @click.option("--assume-role", "assume_role_arn", default=None, help="IAM role ARN to assume.")
 @click.option("--github-org", default=None, help="GitHub org to scan for repos and pipelines.")
 @click.option(
-    "--github-token", envvar="GITHUB_TOKEN", default=None, help="GitHub personal access token."
+    "--github-token",
+    envvar="GITHUB_TOKEN",
+    default=None,
+    help="GitHub token (prefer the GITHUB_TOKEN env var). Used in memory only; never stored.",
 )
 @click.option(
     "--output",
