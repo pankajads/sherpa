@@ -1,0 +1,52 @@
+name: Publish wiki
+
+# docs/wiki/ is the source of truth for the GitHub wiki. Pages are reviewed in
+# pull requests and published here on merge to main. Edits made directly in the
+# wiki UI are overwritten on the next publish.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/wiki/**"
+      - ".github/workflows/publish-wiki.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-wiki
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Sync docs/wiki to GitHub wiki
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if ! git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.wiki.git" wiki; then
+            echo "::error::Wiki repository not found. Enable Wiki in Settings > General > Features, create any first page in the wiki UI once, then re-run this workflow."
+            exit 1
+          fi
+          # Mirror docs/wiki/ into the wiki repo (pages removed here are removed there).
+          find wiki -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -R docs/wiki/. wiki/
+          rm -f wiki/README.md
+          cd wiki
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Wiki already up to date."
+            exit 0
+          fi
+          git commit -m "Sync wiki from ${GITHUB_SHA}"
+          git push
