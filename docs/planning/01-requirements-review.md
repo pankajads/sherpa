@@ -121,7 +121,7 @@ Grouped by what blocks adoption. **Bold = needed for MVP.**
 
 ## 5. Decisions
 
-**Resolved 2026-10-02** (details in [02-phased-plan.md §0](02-phased-plan.md)): AWS-only MVP; online + offline collection; CLI to collect, GUI to decide (GUI as Phase 1.5 fast follow); fixed stage gates; GUI for the acquirer with inventory-only access for the target; chat in Phase 2, read-only and grounded; self-hosted only. Requirement sources confirmed as README.md + CLAUDE.md.
+**Resolved 2026-10-02** (details in [02-phased-plan.md §0](02-phased-plan.md)): AWS-only MVP; online + offline collection; CLI to collect, GUI to decide (GUI as Phase 1.5 fast follow); fixed stage gates; GUI acquirer-only (target access later, per engagement); options matrix with effort + paved-road alignment per workload; chat in Phase 2, read-only and grounded; self-hosted only. Requirement sources confirmed as README.md + CLAUDE.md.
 
 **Still open:**
 - Is the first SCM GitHub only (item 3 below)?

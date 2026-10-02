@@ -18,7 +18,8 @@
 | D-2 | **Both online and offline collection.** Online once the deal has closed and cross-account access is established; offline (target-run bundle) otherwise. | Both modes produce the *same* snapshot format; everything downstream is mode-agnostic. |
 | D-3 | **CLI to collect, GUI to decide.** Collection stays a headless CLI/container. Review, approval, history and planning go in the GUI. | GUI ships as fast follow (Phase 1.5) after data quality is validated with the CLI MVP. |
 | D-4 | **Fixed stage gates, not user-defined workflows**, in MVP: `Discover → Review inventory → Assess → Review findings → Plan → Approve plan`. | Configurable workflows deferred to Phase 3, only if customers ask. |
-| D-5 | **GUI primarily for the acquirer; the target team can view its own data.** The target sees inventory + curation only — never the assessment, plan, acquirer profile or approvals. | Enforced server-side by RBAC (P1.5-E2), not by hiding UI elements. |
+| D-5 | **GUI is acquirer-only for now.** Target-team access is a later, per-engagement decision based on the deal situation. When enabled, the target sees inventory + curation only — never the assessment, options, plan, acquirer profile or approvals. | No target role in Phase 1.5. The authz model is built so a target role can be added later (Phase 3) without redesign. The target still gets the offline bundle preview before export (P1.5-7.2) — that's their own data, on their own machine. |
+| D-8 | **The tool presents options with effort, not a single answer.** Per workload: relocate, lift-and-shift, re-platform onto the acquirer's paved road, modernize, retire, retain — each with effort range, duration, paved-road alignment, compliance flags and risk. Sherpa marks a recommended option given constraints; a human chooses. | P1-E8 redesigned as an options matrix; new paved-road catalog (P1-6.3/6.4). |
 | D-6 | **Chat is Phase 2, read-only, grounded and opt-in**: answers via tool queries over the store, cites resource IDs, can't change scores/paths/approvals, with a local-model option. | Determinism principle preserved; no deal data leaves the environment unless opted in. |
 | D-7 | **Self-hosted only** (single Docker Compose deployment in the acquirer's environment); no Sherpa-operated SaaS. | No outbound network calls from the app other than to configured AWS/GitHub/LLM endpoints. |
 
@@ -180,6 +181,8 @@ The assessment is deterministic: rules are versioned YAML/Python packs, and ever
 |---|---|---|---|
 | P1-6.1 | `target-profile.yaml` schema: allowed regions, approved services, required tags, encryption/logging baseline, reserved CIDR ranges, SCP list (or exported SCP JSON), standard runtimes/versions, team capacity (teams, FTE-weeks, skills), deadline(s). | Schema validated with clear errors; example profiles shipped. | Schema tests; docs example passes validation in CI. |
 | P1-6.2 | Import acquirer SCPs/Config rules from an AWS org export (read-only) to auto-fill the profile. | Imported profile matches a hand-written one for the reference "acquirer". | Fixture comparison. |
+| P1-6.3 | **Paved-road catalog** (`paved-road.yaml`): the acquirer's golden paths as structured capabilities — compute platforms (e.g. "internal EKS platform", "ECS Fargate standard"), data-store standards (engines/versions/managed services), CI/CD templates (e.g. GitHub Actions reusable workflows, OIDC deploy role pattern), IaC module registry, observability, identity/SSO, networking/account vending. Each capability declares **mapping rules** (which source patterns it replaces, e.g. `EC2 + ASG + ALB web app → EKS platform`, `self-managed Postgres on EC2 → RDS Postgres ≥15`, `Jenkins/ad-hoc deploy → standard GHA template`) and an adoption-effort coefficient. Ships with an example catalog for a "typical AWS landing zone". | Schema validates; the example catalog covers every source pattern in the reference estate; an acquirer can describe its paved road in ≤ 1 day using the docs (pilot measure). | Schema tests; coverage check (every reference workload component maps to a capability or an explicit "no equivalent"); pilot timing. |
+| P1-6.4 | **Paved-road fit per workload**: classify each component as *aligned* (already matches), *mappable* (equivalent exists, effort X) or *gap* (no paved-road equivalent ⇒ needs exception or new capability). Output an alignment % and gap list per workload. | Component classification matches the answer key for ≥ 90% of reference components; every *gap* is listed explicitly (never dropped). | Reference E2E; unit test per mapping rule (positive + negative); property test: adding a capability to the catalog never lowers any workload's alignment. |
 
 #### P1-E7 Rule engine + rule packs
 | ID | What | Success criteria | Test method |
@@ -194,13 +197,28 @@ The assessment is deterministic: rules are versioned YAML/Python packs, and ever
 
 ### MODE 3 — PLAN
 
-#### P1-E8 Path recommendation (deterministic)
+#### P1-E8 Migration options & effort per workload (deterministic)
+
+Every workload gets an **options matrix**, not a single answer. Sherpa recommends one option given the constraints; a human chooses, and the choice is recorded.
+
+| Option | What it means in an AWS→AWS acquisition | Typical trigger signals |
+|---|---|---|
+| **O1 Relocate** | Move the account(s) as-is into the acquirer's AWS Organization; remediate guardrail violations only. | Clean account boundaries, few blockers, tight deadline. |
+| **O2 Lift-and-shift (rehost)** | Recreate the same architecture in an acquirer-vended account (landing zone); data copied. | Shared/messy accounts, CIDR overlap, account can't be re-parented. |
+| **O3 Re-platform onto paved road** | Swap components for paved-road equivalents (container platform, managed DB standard, CI templates, IaC modules) without redesign. | High *mappable* share in P1-6.4; moderate time. |
+| **O4 Modernize / re-architect** | Redesign to target best practice and full paved-road alignment. | Many *gaps*, EOL tech, strategic workload, time available. |
+| **O5 Retire** | Decommission (idle, or duplicated by an acquirer capability). | Idle signals (P1-2.5), human marking. *Duplicate-capability detection needs an acquirer service catalog — Phase 2.* |
+| **O6 Retain** | Leave in place for now (e.g. under a TSA), with a revisit date. | Blockers with no viable option inside the deadline. |
+
+Each option card shows: **viability** (viable / viable-with-conflict / not viable + why), **effort range** (P50 / P80 FTE-weeks), **calendar duration** given team capacity, **effort breakdown**, **paved-road alignment after migration** (% + remaining gaps), **compliance flags**, **risk level**, **current run cost** (target-state cost estimate is Phase 2), **key assumptions**, **confidence**.
+
 | ID | What | Success criteria | Test method |
 |---|---|---|---|
-| P1-8.1 | Path model: **Relocate (account re-parent into acquirer Org)**, Rehost, Replatform, Refactor, Retire, Retain. Document a decision table: which signals/findings push toward which path; constraints (deadline, capacity) as weights; blockers as hard constraints. | The decision table is documented and reviewed by ≥ 2 practitioners (e.g. ex-AWS ProServe / integration leads). | Design review sign-off. |
-| P1-8.2 | Scoring implementation: per-workload scores per path, with a rationale listing the top contributing factors. Compliance blockers produce an explicit **conflict** (e.g. "deadline favours Rehost, but GDPR-R03 blocks the target region") — never silently resolved. | Matches the answer-key path for ≥ 80% of reference workloads; 100% of seeded conflicts surfaced. | Reference E2E; golden tests; property test: tightening the deadline never moves a workload to a *higher*-effort path unless a blocker forces it (monotonicity). |
-| P1-8.3 | Effort estimate per workload per path (t-shirt + FTE-week range), from signals with transparent coefficients the user can override in the profile. | Estimates reproducible; coefficient changes reflected immediately. | Unit tests; sensitivity test. |
-| P1-8.4 | Human override of path (from P1-5.2) shown as "overridden by user, reason", kept in the audit log. | Overrides never lost and always visible. | Rescan + replan test. |
+| P1-8.1 | Option model + **decision table**: signals/findings/paved-road fit → viability and preference per option; constraints (deadline, capacity) as weights; compliance blockers as hard constraints that make an option *not viable* or *viable-with-conflict* (never a score penalty). | Decision table documented and reviewed by ≥ 2 practitioners (integration leads / migration architects). | Design review sign-off; table is data (versioned YAML), not code. |
+| P1-8.2 | **Effort model v1**: component-based. Infra build/move, data migration (volume, engine change, replication), app change (per paved-road mapping), CI/CD migration to acquirer templates, compliance/guardrail remediation, test & cutover. Drivers come from discovery signals (resource counts, data volume, IaC coverage, EOL count, cross-workload edges, *gap* count). Coefficients live in a versioned `effort-model.yaml` the acquirer can tune. Output is a P50/P80 range, never a single number. | Fully reproducible; every estimate shows its breakdown and drivers; changing a coefficient changes only the affected estimates. | Unit tests per component; golden tests; sensitivity test (±20% coefficient ⇒ bounded, explained change). |
+| P1-8.3 | **Calibration**: initial coefficients from expert elicitation (≥ 2 practitioners); back-test against the design partner's completed migration (P1-E12) and adjust. | Back-test actual effort falls within the P50–P80 band for ≥ 60% of workloads and within the P80 bound for ≥ 80% of workloads (v1 target; tighten as data accumulates). Calibration report published with the release. | Back-test harness: actuals CSV vs estimates ⇒ hit-rate report. |
+| P1-8.4 | Recommendation: pick the preferred viable option per workload under the given constraints, with a rationale listing the top factors and any **conflict** (e.g. "deadline favours O2, but GDPR-R03 blocks the target region; O6 Retain until region exception approved"). | Recommended option matches the answer key for ≥ 80% of reference workloads; 100% of seeded conflicts surfaced. | Reference E2E; golden tests; property tests — monotonicity: tightening the deadline never moves the recommendation to a *higher*-effort option unless a blocker forces it; adding a paved-road capability never increases O3 effort. |
+| P1-8.5 | Human selection/override of the option per workload (with reason), recorded in the audit log and reflected in waves/feasibility. | Selections never lost on rescan; always visible as "chosen by X, recommended was Y". | Rescan + replan test. |
 
 #### P1-E9 Wave planning & feasibility
 | ID | What | Success criteria | Test method |
@@ -213,7 +231,7 @@ The assessment is deterministic: rules are versioned YAML/Python packs, and ever
 | ID | What | Success criteria | Test method |
 |---|---|---|---|
 | P1-10.1 | Executive report (Markdown + self-contained HTML): estate summary, cost, top risks/blockers, path distribution, waves, feasibility, coverage gaps, assumptions. | A 2-page summary a non-engineer can read; every number traceable to the data. | Snapshot tests; pilot reviewer feedback (≥ 4/5 usefulness). |
-| P1-10.2 | XLSX workbook: Workloads, Resources, Findings, Waves, Overrides, Coverage Gaps tabs. | Opens cleanly in Excel/Sheets; filterable; round-trips into overrides. | openpyxl read-back test; manual check in Excel + Google Sheets. |
+| P1-10.2 | XLSX workbook: Workloads, Options (O1–O6 per workload with effort/alignment/flags), Paved-road gaps, Resources, Findings, Waves, Overrides, Coverage Gaps tabs. | Opens cleanly in Excel/Sheets; filterable; round-trips into overrides. | openpyxl read-back test; manual check in Excel + Google Sheets. |
 | P1-10.3 | Versioned JSON schemas (snapshot, assessment, plan) published in `schemas/`. | Backward-compatibility check in CI. | JSON-Schema validation tests; schema-diff gate. |
 
 #### P1-E11 Packaging, docs, release
@@ -244,7 +262,7 @@ Critical path: **reference estate → discovery coverage → workload model → 
 
 ## Phase 1.5 — Review & Approval GUI (≈ 6 weeks)
 
-**Who:** acquirer team (primary), target team (inventory view only).
+**Who:** acquirer team only (D-5). Target access is deferred to Phase 3 as a per-engagement option.
 **Shape:** self-hosted web app (same Docker Compose as the API), thin client over the P1-E13 API, no business logic in the frontend.
 **Suggested stack (proposal, decide at kick-off):** existing Python core + FastAPI for the API; React + TypeScript frontend; Postgres for multi-user deployments (SQLite stays for single-user CLI).
 
@@ -254,9 +272,8 @@ Critical path: **reference estate → discovery coverage → workload model → 
 | Acquirer admin | Everything in the engagement | Manage users, profile, imports, all actions |
 | Acquirer reviewer | Inventory, findings, plans, history | Curate workloads, review findings, propose plans |
 | Acquirer approver | Same as reviewer | Pass stage gates, approve the plan |
-| **Target viewer** | **Own inventory, workloads, coverage gaps, snapshot history** | **Comment/suggest workload corrections (acquirer accepts or rejects)** |
 
-**Hard rule (D-5):** the target viewer never sees the acquirer profile, assessment findings, path recommendations, effort, waves, approvals or other engagements. Pre-close, the GUI is not exposed to the target at all; the target uses local preview (P1.5-7.2).
+The authz model must be **role- and field-scoped from day one**, so a future target role (Phase 3) is a configuration change, not a redesign. The target's only Phase 1.5 touchpoint is the offline local preview of its own bundle (P1.5-7.2).
 
 ### Phase 1.5 exit criteria
 | # | Criterion | Target |
@@ -269,12 +286,11 @@ Critical path: **reference estate → discovery coverage → workload model → 
 | Epic | ID | What | Success criteria | Test method |
 |---|---|---|---|---|
 | **P1.5-E1 Deployment & identity** | P1.5-1.1 | Docker Compose (API, UI, DB), TLS, OIDC SSO (Okta/Entra/Google) + local admin bootstrap; no outbound calls except configured endpoints. | Fresh install to first login in < 30 min following docs. | Clean-room install test; egress test (network policy blocks all, app still works offline). |
-| **P1.5-E2 Authorization** | P1.5-2.1 | Server-side, deny-by-default RBAC per engagement with the roles above; target-viewer scoping enforced in the service layer. | G-X3. | Generated authz test matrix (endpoint × role × engagement) in CI; manual pen-test of the target role before the pilot. |
+| **P1.5-E2 Authorization** | P1.5-2.1 | Server-side, deny-by-default RBAC per engagement with the roles above, field-level scoping enforced in the service layer (ready for a future target role). | G-X3. | Generated authz test matrix (endpoint × role × engagement) in CI; a test-only "restricted" role proves field scoping works. |
 | **P1.5-E3 Engagement home & gate tracker** | P1.5-3.1 | Engagement dashboard: current gate, who must act, stale approvals, coverage gaps, last scan per account. | Users can find "what's blocking us" in < 10 s (usability task). | Playwright E2E; moderated usability test. |
 | **P1.5-E4 Inventory browser & curation** | P1.5-4.1 | Search/filter resources, workload view, dependency graph (per workload, bounded), unassigned triage queue, bulk move/merge/split, provenance + confidence shown on every inferred fact. | Handles 10k resources with p95 interaction < 1 s; G-X2. | Performance test with the synthetic 10k fixture; Playwright E2E. |
-| | P1.5-4.2 | Target suggestions inbox: target-proposed corrections accepted or rejected by acquirer reviewers. | Every suggestion ends accepted/rejected with an audit entry. | E2E with two roles. |
 | **P1.5-E5 Findings review** | P1.5-5.1 | Findings by workload/rule/severity; accept / waive (reason + expiry) / false-positive; evidence links to resources. | Blockers can't be bulk-waived without individual reasons. | E2E + API negative tests. |
-| **P1.5-E6 Plan view & approval** | P1.5-6.1 | Path per workload with rationale and conflicts, effort, waves (timeline), feasibility vs capacity, scenario compare; approve gate with comment. | Every number on screen matches the CLI/XLSX output for the same version. | Cross-check test: API/CLI output vs UI-rendered values (Playwright extraction). |
+| **P1.5-E6 Options, plan view & approval** | P1.5-6.1 | Per-workload options matrix (O1–O6 side by side: viability, P50/P80 effort, duration, paved-road alignment and gaps, compliance flags, risk) with the recommended option marked and a "choose option + reason" action; waves (timeline), feasibility vs capacity, scenario compare; approve gate with comment. | Every number on screen matches the CLI/XLSX output for the same version. | Cross-check test: API/CLI output vs UI-rendered values (Playwright extraction). |
 | **P1.5-E7 History, diff & offline** | P1.5-7.1 | Snapshot timeline, diff between any two snapshots, "what changed since approval", audit-log viewer. | 100% of seeded changes between two reference snapshots shown. | Reference E2E through the UI. |
 | | P1.5-7.2 | Offline bundle upload via UI; **local read-only preview** (`sherpa view bundle.sherpa`) so the target can inspect exactly what it is sending before export, with no server and no network. | Preview works fully offline; shows identical inventory to the post-import view. | Air-gapped container test; parity test preview vs imported view. |
 | **Cross-cutting** | P1.5-X.1 | Accessibility (WCAG 2.1 AA) and export of any table to CSV/XLSX. | 0 critical axe violations. | axe-core in Playwright CI. |
@@ -286,7 +302,9 @@ Critical path: **reference estate → discovery coverage → workload model → 
 |---|---|---|
 | GitLab + Bitbucket code/pipeline scanners; Jenkins pipeline scanner | Link recall within 10 pts of GitHub on equivalent fixture repos | Plugin contract suite + fixture E2E |
 | LLM explanation layer (opt-in, provider-pluggable, local-model option) — narrates rationale; never changes scores | Disabling the LLM leaves all scores/paths byte-identical; explanations cite evidence IDs only (no hallucinated resources) | Golden test with LLM on/off; evidence-ID validation; human eval rubric on 50 samples |
-| **Grounded chat in the GUI** (D-6): read-only tools over the engagement store (query inventory, findings, plans, diffs); every answer cites resource/finding IDs; no write tools; opt-in per engagement; local-model option; respects RBAC (target viewers can only query their inventory) | ≥ 90% answer accuracy on a 100-question eval set built from the reference estate; 0 uncited factual claims; 0 RBAC leaks via chat | Automated eval harness (questions + expected answers from the answer key); citation validator; adversarial prompts trying to reach hidden data as a target viewer |
+| **Grounded chat in the GUI** (D-6): read-only tools over the engagement store (query inventory, findings, plans, diffs); every answer cites resource/finding IDs; no write tools; opt-in per engagement; local-model option; respects RBAC | ≥ 90% answer accuracy on a 100-question eval set built from the reference estate; 0 uncited factual claims; 0 RBAC leaks via chat | Automated eval harness (questions + expected answers from the answer key); citation validator; adversarial prompts trying to reach data outside the user's role/engagement |
+| Target-state run-cost estimate per option (pricing API, rightsizing from utilisation) | Within ±20% of actual post-migration cost on back-test | Back-test against design-partner billing |
+| Acquirer service catalog → "duplicate capability" Retire suggestions | ≥ 70% of suggestions accepted by architects | Labelled eval set |
 | Context store v1: RAG over acquirer docs/templates to *suggest* standard modules per workload | ≥ 70% of suggestions rated relevant by architects | Labelled eval set |
 | Compliance packs: PCI-DSS scope hints, HIPAA, regional data-residency laws (e.g. DPDP, LGPD); Security Hub/Config findings import | All seeded scenarios flagged | Reference E2E per pack |
 | Licensing exposure (Windows/SQL/Oracle, Marketplace) | Seeded licensed instances detected | Reference E2E |
@@ -297,7 +315,7 @@ Critical path: **reference estate → discovery coverage → workload model → 
 | Configurable workflows (custom gates, parallel reviewers, per-gate approver rules), only if ≥ 2 customers ask | Custom workflow can't bypass the audit log or compliance-blocker visibility | State-machine property tests over generated workflows |
 | Notifications (email/Slack) on gate changes and stale approvals | Delivered within 1 min; no deal data in notification body beyond links | Integration tests; content-leak test |
 | Jira/Linear export of waves/tasks | Round-trip of IDs | Integration tests against sandbox projects |
-| Finer-grained target roles (e.g. target can see remediation tasks assigned to them post-close) | Explicit per-field allow-list; authz matrix still 100% | Authz matrix |
+| **Target-team access (opt-in per engagement)**: target viewer role (own inventory, workloads, coverage gaps, history; suggest corrections) and later remediation tasks assigned to them. Never sees profile, findings, options, plan or approvals. | Explicit per-field allow-list; authz matrix still 100%; enabling is an admin action recorded in the audit log | Authz matrix; pen-test of target role before first use |
 
 ## Phase 4 — Multi-cloud & community (ongoing)
 Azure and GCP as *sources* and *targets* (requires path model generalisation), plugin SDK docs + cookie-cutter, a community rule-pack registry, and a governance model. Success: an external contributor ships a connector without core changes (proved by the P0-E4 contract suite).
@@ -311,6 +329,8 @@ Azure and GCP as *sources* and *targets* (requires path model generalisation), p
 | Reference estate cost/maintenance | Medium | Nightly destroy; budget alarm; minimal instance sizes. |
 | Workload inference accuracy is low on messy estates | High | Curation UX (P1-5.3) is MVP-critical, not polish. |
 | Path decision table seen as arbitrary | Medium | Practitioner review (P1-8.1), transparent coefficients, overrides. |
+| **Effort estimates are wrong and kill credibility** | High | Ranges not points, visible breakdown/drivers, tunable coefficients, calibration back-test (P1-8.3), confidence shown on every estimate. |
+| **Acquirer can't describe its paved road** (tribal knowledge, wiki pages) | High | Example catalog + ≤ 1-day authoring target (P1-6.3); start with 5–10 capabilities, not a complete catalog; RAG-assisted catalog drafting in Phase 2. |
 | Security teams refuse to run third-party tool | Medium | Read-only proof, offline mode, signed releases, SBOM, threat model. |
-| Target viewer sees sensitive acquirer conclusions (e.g. "retire" ⇒ job implications) | Medium | Server-side RBAC (P1.5-E2), authz matrix in CI, pen-test of target role before pilot. |
+| Target viewer sees sensitive acquirer conclusions (e.g. "retire" ⇒ job implications) when target access is enabled later | Medium | Acquirer-only GUI in Phase 1.5 (D-5); field-scoped server-side RBAC; pen-test before enabling target role. |
 | GUI scope creep (workflow builder, dashboards) delays validation | High | Fixed gates (D-4); GUI only after Phase 1 data quality is proven; G-X4 "no logic in frontend". |
