@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from sherpa.core.models import Pipeline, Repository, Resource, ResourceDependency
 from sherpa.core.models.enums import DependencyPlane, DependencyType
+from sherpa.core.models.inventory import dependency_sort_key
 
 
 def link_cross_plane(
@@ -41,12 +42,14 @@ def link_cross_plane(
                     )
                     pipe_edges.setdefault(r.id, []).append(dep)
 
-    # Rebuild resources with extra edges (only if there are new edges)
+    # Rebuild resources with extra edges (only if there are new edges). model_copy skips
+    # validation, so sort explicitly to keep edge order independent of input order.
     updated: list[Resource] = []
     for r in resources:
         extra = repo_edges.get(r.id, []) + pipe_edges.get(r.id, [])
         if extra:
-            updated.append(r.model_copy(update={"dependencies": list(r.dependencies) + extra}))
+            deps = sorted([*r.dependencies, *extra], key=dependency_sort_key)
+            updated.append(r.model_copy(update={"dependencies": deps}))
         else:
             updated.append(r)
-    return updated
+    return sorted(updated, key=lambda r: r.id)

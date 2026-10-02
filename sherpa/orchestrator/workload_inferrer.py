@@ -5,6 +5,14 @@ from __future__ import annotations
 from sherpa.core.models import Repository, Resource, Workload
 from sherpa.core.models.naming import NamingConvention
 
+# When a workload's resources were grouped by different methods, report the strongest one,
+# so the result doesn't depend on which resource happened to be seen first.
+_METHOD_PRECEDENCE = {"tag": 0, "name_regex": 1, "name_segment": 2, "unassigned": 3}
+
+
+def _stronger(a: str, b: str) -> str:
+    return min(a, b, key=lambda m: (_METHOD_PRECEDENCE.get(m, len(_METHOD_PRECEDENCE)), m))
+
 
 def infer_workloads(
     resources: list[Resource],
@@ -24,6 +32,7 @@ def infer_workloads(
                 "inferred_from": inferred_from,
             }
         groups[name]["resource_ids"].append(resource.id)
+        groups[name]["inferred_from"] = _stronger(groups[name]["inferred_from"], inferred_from)
 
     # Assign repos whose declared resources already belong to a group
     declared_to_group: dict[str, str] = {

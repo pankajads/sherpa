@@ -1,0 +1,657 @@
+{
+  "completed_at": "<timestamp>",
+  "config": {
+    "assume_role_arn": null,
+    "aws_accounts": [
+      "123456789012"
+    ],
+    "aws_regions": [
+      "us-east-1",
+      "eu-west-1"
+    ],
+    "github_org": "acme",
+    "naming_convention": {
+      "name_part": "first",
+      "name_regex": null,
+      "name_separator": "-",
+      "unassigned_label": "unassigned",
+      "workload_tag_keys": [
+        "Application",
+        "application",
+        "app",
+        "Service",
+        "service",
+        "Team",
+        "team",
+        "Project",
+        "project",
+        "Component",
+        "component"
+      ]
+    },
+    "service_categories": [
+      "compute",
+      "storage",
+      "networking",
+      "messaging",
+      "security"
+    ]
+  },
+  "coverage_gaps": [],
+  "errors": [],
+  "pipelines": [
+    {
+      "deploys_to_accounts": [
+        "123456789012"
+      ],
+      "deploys_to_resource_ids": [],
+      "id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
+      "pipeline_type": "github_actions",
+      "repo_id": "github.com/acme/payments-service",
+      "stages": [
+        {
+          "aws_deploy_actions": [
+            "aws-actions/configure-aws-credentials",
+            "terraform-apply"
+          ],
+          "name": "deploy",
+          "target_accounts": [
+            "123456789012"
+          ],
+          "target_regions": [
+            "us-east-1"
+          ],
+          "trigger_type": "push"
+        },
+        {
+          "aws_deploy_actions": [],
+          "name": "test",
+          "target_accounts": [],
+          "target_regions": [],
+          "trigger_type": "push"
+        }
+      ]
+    }
+  ],
+  "repositories": [
+    {
+      "declared_resource_ids": [],
+      "default_branch": "main",
+      "has_docker_compose": true,
+      "has_dockerfile": false,
+      "iac_type": "none",
+      "id": "github.com/acme/checkout-web",
+      "metadata": {
+        "description": "",
+        "private": true
+      },
+      "package_dependencies": [
+        {
+          "ecosystem": "npm",
+          "name": "axios",
+          "version_spec": "^1.7.0"
+        },
+        {
+          "ecosystem": "npm",
+          "name": "react",
+          "version_spec": "^18.3.0"
+        },
+        {
+          "ecosystem": "npm",
+          "name": "vite",
+          "version_spec": "^5.0.0"
+        }
+      ],
+      "url": "https://github.com/acme/checkout-web.git"
+    },
+    {
+      "declared_resource_ids": [],
+      "default_branch": "main",
+      "has_docker_compose": false,
+      "has_dockerfile": false,
+      "iac_type": "none",
+      "id": "github.com/acme/handbook",
+      "metadata": {
+        "description": "",
+        "private": true
+      },
+      "package_dependencies": [],
+      "url": "https://github.com/acme/handbook.git"
+    },
+    {
+      "declared_resource_ids": [
+        "arn:aws:iam::123456789012:role/ci-deploy-role",
+        "arn:aws:rds:us-east-1:123456789012:db:payments-db",
+        "arn:aws:sqs:us-east-1:123456789012:payments-queue"
+      ],
+      "default_branch": "main",
+      "has_docker_compose": false,
+      "has_dockerfile": true,
+      "iac_type": "terraform",
+      "id": "github.com/acme/payments-service",
+      "metadata": {
+        "description": "",
+        "private": true
+      },
+      "package_dependencies": [
+        {
+          "ecosystem": "pypi",
+          "name": "boto3",
+          "version_spec": ">=1.35"
+        },
+        {
+          "ecosystem": "pypi",
+          "name": "fastapi",
+          "version_spec": "==0.115.0"
+        },
+        {
+          "ecosystem": "pypi",
+          "name": "pydantic",
+          "version_spec": ">=2"
+        }
+      ],
+      "url": "https://github.com/acme/payments-service.git"
+    }
+  ],
+  "resources": [
+    {
+      "account_id": "123456789012",
+      "dependencies": [
+        {
+          "dependency_type": "deploys_to",
+          "metadata": {},
+          "plane": "cross",
+          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
+          "target_id": "arn:aws:dynamodb:eu-west-1:123456789012:table/reporting-events"
+        }
+      ],
+      "id": "arn:aws:dynamodb:eu-west-1:123456789012:table/reporting-events",
+      "metadata": {
+        "billing_mode": "PAY_PER_REQUEST",
+        "item_count": 1200,
+        "size_bytes": 524288
+      },
+      "name": "reporting-events",
+      "region": "eu-west-1",
+      "resource_type": "aws::dynamodb::table",
+      "tags": {}
+    },
+    {
+      "account_id": "123456789012",
+      "dependencies": [
+        {
+          "dependency_type": "deploys_to",
+          "metadata": {},
+          "plane": "cross",
+          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
+          "target_id": "arn:aws:ec2:eu-west-1:123456789012:instance/i-0ccc3333"
+        }
+      ],
+      "id": "arn:aws:ec2:eu-west-1:123456789012:instance/i-0ccc3333",
+      "metadata": {
+        "instance_type": "m5.large",
+        "state": "running",
+        "vpc_id": "vpc-0eu"
+      },
+      "name": "reporting-batch",
+      "region": "eu-west-1",
+      "resource_type": "aws::ec2::instance",
+      "tags": {
+        "Name": "reporting-batch",
+        "Team": "reporting"
+      }
+    },
+    {
+      "account_id": "123456789012",
+      "dependencies": [
+        {
+          "dependency_type": "network",
+          "metadata": {},
+          "plane": "cloud",
+          "source_id": "arn:aws:ec2:us-east-1:123456789012:instance/i-0aaa1111",
+          "target_id": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-0db"
+        },
+        {
+          "dependency_type": "network",
+          "metadata": {},
+          "plane": "cloud",
+          "source_id": "arn:aws:ec2:us-east-1:123456789012:instance/i-0aaa1111",
+          "target_id": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-0web"
+        },
+        {
+          "dependency_type": "deploys_to",
+          "metadata": {},
+          "plane": "cross",
+          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
+          "target_id": "arn:aws:ec2:us-east-1:123456789012:instance/i-0aaa1111"
+        }
+      ],
+      "id": "arn:aws:ec2:us-east-1:123456789012:instance/i-0aaa1111",
+      "metadata": {
+        "instance_type": "t3.small",
+        "state": "running",
+        "vpc_id": "vpc-0main"
+      },
+      "name": "payments-api",
+      "region": "us-east-1",
+      "resource_type": "aws::ec2::instance",
+      "tags": {
+        "Application": "payments",
+        "Name": "payments-api",
+        "env": "prod"
+      }
+    },
+    {
+      "account_id": "123456789012",
+      "dependencies": [
+        {
+          "dependency_type": "network",
+          "metadata": {},
+          "plane": "cloud",
+          "source_id": "arn:aws:ec2:us-east-1:123456789012:instance/i-0bbb2222",
+          "target_id": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-0web"
+        },
+        {
+          "dependency_type": "deploys_to",
+          "metadata": {},
+          "plane": "cross",
+          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
+          "target_id": "arn:aws:ec2:us-east-1:123456789012:instance/i-0bbb2222"
+        }
+      ],
+      "id": "arn:aws:ec2:us-east-1:123456789012:instance/i-0bbb2222",
+      "metadata": {
+        "instance_type": "t3.micro",
+        "state": "stopped",
+        "vpc_id": "vpc-0main"
+      },
+      "name": "checkout-web",
+      "region": "us-east-1",
+      "resource_type": "aws::ec2::instance",
+      "tags": {
+        "Name": "checkout-web"
+      }
+    },
+    {
+      "account_id": "123456789012",
+      "dependencies": [
+        {
+          "dependency_type": "deploys_to",
+          "metadata": {},
+          "plane": "cross",
+          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
+          "target_id": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-0db"
+        }
+      ],
+      "id": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-0db",
+      "metadata": {
+        "description": "db",
+        "vpc_id": "vpc-0main"
+      },
+      "name": "payments-db-sg",
+      "region": "us-east-1",
+      "resource_type": "aws::ec2::security-group",
+      "tags": {
+        "Application": "payments"
+      }
+    },
+    {
+      "account_id": "123456789012",
+      "dependencies": [
+        {
+          "dependency_type": "deploys_to",
+          "metadata": {},
+          "plane": "cross",
+          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
+          "target_id": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-0web"
+        }
+      ],
+      "id": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-0web",
+      "metadata": {
+        "description": "web",
+        "vpc_id": "vpc-0main"
+      },
+      "name": "checkout-web-sg",
+      "region": "us-east-1",
+      "resource_type": "aws::ec2::security-group",
+      "tags": {}
+    },
+    {
+      "account_id": "123456789012",
+      "dependencies": [
+        {
+          "dependency_type": "deploys_to",
+          "metadata": {},
+          "plane": "cross",
+          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
+          "target_id": "arn:aws:ec2:us-east-1:123456789012:vpc/vpc-0main"
+        }
+      ],
+      "id": "arn:aws:ec2:us-east-1:123456789012:vpc/vpc-0main",
+      "metadata": {
+        "cidr": "10.0.0.0/16",
+        "is_default": false
+      },
+      "name": "shared-main",
+      "region": "us-east-1",
+      "resource_type": "aws::ec2::vpc",
+      "tags": {
+        "Name": "shared-main"
+      }
+    },
+    {
+      "account_id": "123456789012",
+      "dependencies": [
+        {
+          "dependency_type": "deploys_to",
+          "metadata": {},
+          "plane": "cross",
+          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
+          "target_id": "arn:aws:ecs:us-east-1:123456789012:cluster/checkout-cluster"
+        }
+      ],
+      "id": "arn:aws:ecs:us-east-1:123456789012:cluster/checkout-cluster",
+      "metadata": {
+        "running_tasks_count": 3,
+        "status": "ACTIVE"
+      },
+      "name": "checkout-cluster",
+      "region": "us-east-1",
+      "resource_type": "aws::ecs::cluster",
+      "tags": {
+        "Application": "checkout",
+        "env": "prod"
+      }
+    },
+    {
+      "account_id": "123456789012",
+      "dependencies": [
+        {
+          "dependency_type": "declares",
+          "metadata": {},
+          "plane": "cross",
+          "source_id": "github.com/acme/payments-service",
+          "target_id": "arn:aws:iam::123456789012:role/ci-deploy-role"
+        },
+        {
+          "dependency_type": "deploys_to",
+          "metadata": {},
+          "plane": "cross",
+          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
+          "target_id": "arn:aws:iam::123456789012:role/ci-deploy-role"
+        }
+      ],
+      "id": "arn:aws:iam::123456789012:role/ci-deploy-role",
+      "metadata": {
+        "path": "/ci/",
+        "trust_policy": "{\"Statement\": [], \"Version\": \"2012-10-17\"}"
+      },
+      "name": "ci-deploy-role",
+      "region": "global",
+      "resource_type": "aws::iam::role",
+      "tags": {}
+    },
+    {
+      "account_id": "123456789012",
+      "dependencies": [
+        {
+          "dependency_type": "deploys_to",
+          "metadata": {},
+          "plane": "cross",
+          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
+          "target_id": "arn:aws:iam::123456789012:role/payments-lambda-role"
+        }
+      ],
+      "id": "arn:aws:iam::123456789012:role/payments-lambda-role",
+      "metadata": {
+        "path": "/",
+        "trust_policy": "{\"Statement\": [{\"Action\": \"sts:AssumeRole\", \"Effect\": \"Allow\", \"Principal\": {\"Service\": \"lambda.amazonaws.com\"}}], \"Version\": \"2012-10-17\"}"
+      },
+      "name": "payments-lambda-role",
+      "region": "global",
+      "resource_type": "aws::iam::role",
+      "tags": {}
+    },
+    {
+      "account_id": "123456789012",
+      "dependencies": [
+        {
+          "dependency_type": "reads_from",
+          "metadata": {},
+          "plane": "cloud",
+          "source_id": "arn:aws:lambda:us-east-1:123456789012:function:payments-processor",
+          "target_id": "arn:aws:sqs:us-east-1:123456789012:payments-queue"
+        },
+        {
+          "dependency_type": "deploys_to",
+          "metadata": {},
+          "plane": "cross",
+          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
+          "target_id": "arn:aws:lambda:us-east-1:123456789012:function:payments-processor"
+        }
+      ],
+      "id": "arn:aws:lambda:us-east-1:123456789012:function:payments-processor",
+      "metadata": {
+        "handler": "app.handler",
+        "memory_size": 512,
+        "role": "arn:aws:iam::123456789012:role/payments-lambda-role",
+        "runtime": "python3.12"
+      },
+      "name": "payments-processor",
+      "region": "us-east-1",
+      "resource_type": "aws::lambda::function",
+      "tags": {}
+    },
+    {
+      "account_id": "123456789012",
+      "dependencies": [
+        {
+          "dependency_type": "declares",
+          "metadata": {},
+          "plane": "cross",
+          "source_id": "github.com/acme/payments-service",
+          "target_id": "arn:aws:rds:us-east-1:123456789012:db:payments-db"
+        },
+        {
+          "dependency_type": "deploys_to",
+          "metadata": {},
+          "plane": "cross",
+          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
+          "target_id": "arn:aws:rds:us-east-1:123456789012:db:payments-db"
+        }
+      ],
+      "id": "arn:aws:rds:us-east-1:123456789012:db:payments-db",
+      "metadata": {
+        "engine": "postgres",
+        "engine_version": "15.4",
+        "instance_class": "db.t3.medium",
+        "multi_az": true
+      },
+      "name": "payments-db",
+      "region": "us-east-1",
+      "resource_type": "aws::rds::db-instance",
+      "tags": {
+        "Application": "payments",
+        "DataClass": "pii"
+      }
+    },
+    {
+      "account_id": "123456789012",
+      "dependencies": [
+        {
+          "dependency_type": "deploys_to",
+          "metadata": {},
+          "plane": "cross",
+          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
+          "target_id": "arn:aws:s3:::checkout-assets"
+        }
+      ],
+      "id": "arn:aws:s3:::checkout-assets",
+      "metadata": {
+        "creation_date": "2024-01-15 00:00:00+00:00"
+      },
+      "name": "checkout-assets",
+      "region": "us-east-1",
+      "resource_type": "aws::s3::bucket",
+      "tags": {}
+    },
+    {
+      "account_id": "123456789012",
+      "dependencies": [
+        {
+          "dependency_type": "deploys_to",
+          "metadata": {},
+          "plane": "cross",
+          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
+          "target_id": "arn:aws:s3:::payments-receipts"
+        }
+      ],
+      "id": "arn:aws:s3:::payments-receipts",
+      "metadata": {
+        "creation_date": "2024-01-15 00:00:00+00:00"
+      },
+      "name": "payments-receipts",
+      "region": "us-east-1",
+      "resource_type": "aws::s3::bucket",
+      "tags": {}
+    },
+    {
+      "account_id": "123456789012",
+      "dependencies": [
+        {
+          "dependency_type": "deploys_to",
+          "metadata": {},
+          "plane": "cross",
+          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
+          "target_id": "arn:aws:s3:::reporting-exports"
+        }
+      ],
+      "id": "arn:aws:s3:::reporting-exports",
+      "metadata": {
+        "creation_date": "2024-01-15 00:00:00+00:00"
+      },
+      "name": "reporting-exports",
+      "region": "eu-west-1",
+      "resource_type": "aws::s3::bucket",
+      "tags": {}
+    },
+    {
+      "account_id": "123456789012",
+      "dependencies": [
+        {
+          "dependency_type": "deploys_to",
+          "metadata": {},
+          "plane": "cross",
+          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
+          "target_id": "arn:aws:sns:us-east-1:123456789012:checkout-events"
+        }
+      ],
+      "id": "arn:aws:sns:us-east-1:123456789012:checkout-events",
+      "metadata": {},
+      "name": "checkout-events",
+      "region": "us-east-1",
+      "resource_type": "aws::sns::topic",
+      "tags": {}
+    },
+    {
+      "account_id": "123456789012",
+      "dependencies": [
+        {
+          "dependency_type": "deploys_to",
+          "metadata": {},
+          "plane": "cross",
+          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
+          "target_id": "arn:aws:sqs:us-east-1:123456789012:queue/payments-queue"
+        }
+      ],
+      "id": "arn:aws:sqs:us-east-1:123456789012:queue/payments-queue",
+      "metadata": {
+        "url": "https://sqs.us-east-1.amazonaws.com/123456789012/payments-queue"
+      },
+      "name": "payments-queue",
+      "region": "us-east-1",
+      "resource_type": "aws::sqs::queue",
+      "tags": {}
+    }
+  ],
+  "snapshot_id": "<snapshot-id>",
+  "started_at": "<timestamp>",
+  "workloads": [
+    {
+      "id": "wl-c7761e58969f7edd",
+      "inferred_from": "tag",
+      "metadata": {},
+      "migration_path": "unknown",
+      "name": "checkout",
+      "pipeline_ids": [],
+      "repo_ids": [],
+      "resource_ids": [
+        "arn:aws:ec2:us-east-1:123456789012:instance/i-0bbb2222",
+        "arn:aws:ec2:us-east-1:123456789012:security-group/sg-0web",
+        "arn:aws:ecs:us-east-1:123456789012:cluster/checkout-cluster",
+        "arn:aws:s3:::checkout-assets",
+        "arn:aws:sns:us-east-1:123456789012:checkout-events"
+      ]
+    },
+    {
+      "id": "wl-1b158839f8aa339e",
+      "inferred_from": "name_segment",
+      "metadata": {},
+      "migration_path": "unknown",
+      "name": "ci",
+      "pipeline_ids": [],
+      "repo_ids": [
+        "github.com/acme/payments-service"
+      ],
+      "resource_ids": [
+        "arn:aws:iam::123456789012:role/ci-deploy-role"
+      ]
+    },
+    {
+      "id": "wl-df384ae97c77ad30",
+      "inferred_from": "tag",
+      "metadata": {},
+      "migration_path": "unknown",
+      "name": "payments",
+      "pipeline_ids": [],
+      "repo_ids": [
+        "github.com/acme/payments-service"
+      ],
+      "resource_ids": [
+        "arn:aws:ec2:us-east-1:123456789012:instance/i-0aaa1111",
+        "arn:aws:ec2:us-east-1:123456789012:security-group/sg-0db",
+        "arn:aws:iam::123456789012:role/payments-lambda-role",
+        "arn:aws:lambda:us-east-1:123456789012:function:payments-processor",
+        "arn:aws:rds:us-east-1:123456789012:db:payments-db",
+        "arn:aws:s3:::payments-receipts",
+        "arn:aws:sqs:us-east-1:123456789012:queue/payments-queue"
+      ]
+    },
+    {
+      "id": "wl-637d7becb9983937",
+      "inferred_from": "tag",
+      "metadata": {},
+      "migration_path": "unknown",
+      "name": "reporting",
+      "pipeline_ids": [],
+      "repo_ids": [],
+      "resource_ids": [
+        "arn:aws:dynamodb:eu-west-1:123456789012:table/reporting-events",
+        "arn:aws:ec2:eu-west-1:123456789012:instance/i-0ccc3333",
+        "arn:aws:s3:::reporting-exports"
+      ]
+    },
+    {
+      "id": "wl-a4d26868017c0ccf",
+      "inferred_from": "name_segment",
+      "metadata": {},
+      "migration_path": "unknown",
+      "name": "shared",
+      "pipeline_ids": [],
+      "repo_ids": [],
+      "resource_ids": [
+        "arn:aws:ec2:us-east-1:123456789012:vpc/vpc-0main"
+      ]
+    }
+  ]
+}
