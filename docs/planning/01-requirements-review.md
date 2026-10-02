@@ -123,8 +123,9 @@ Grouped by what blocks adoption. **Bold = needed for MVP.**
 
 **Resolved 2026-10-02** (details in [02-phased-plan.md §0](02-phased-plan.md)): AWS-only MVP; online + offline collection; CLI to collect, GUI to decide (GUI as Phase 1.5 fast follow); fixed stage gates; GUI acquirer-only (target access later, per engagement); options matrix with effort + paved-road alignment per workload; chat in Phase 2, read-only and grounded; self-hosted only. Requirement sources confirmed as README.md + CLAUDE.md.
 
+Also resolved: GitHub is the only SCM in MVP (D-9); effort estimates are team-editable, with the tool estimate kept alongside (D-10). README.md and CLAUDE.md aligned with this plan.
+
 **Still open:**
-- Is the first SCM GitHub only (item 3 below)?
 - Is there a design partner or a completed acquisition to test against (item 4 below)?
 
 Original questions:
