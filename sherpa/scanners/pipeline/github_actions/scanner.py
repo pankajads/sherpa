@@ -110,7 +110,7 @@ class GithubActionsScanner(ScannerPlugin):
         return ValidationResult.ok()
 
     async def scan(self, config: ScanConfig) -> ScanResult:
-        gh = Github(config.github_token)
+        gh = Github(config.github_token_value())
         pipelines: list[Pipeline] = []
         coverage_gaps: list[CoverageGap] = []
         errors: list[str] = []

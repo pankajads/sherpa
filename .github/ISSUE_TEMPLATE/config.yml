@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/pankajads/sherpa/security/advisories/new
+    about: Report privately. Please don't open a public issue for vulnerabilities.
+  - name: Questions and ideas
+    url: https://github.com/pankajads/sherpa/discussions
+    about: Ask questions or discuss ideas before opening an issue.

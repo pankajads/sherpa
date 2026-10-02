@@ -96,7 +96,7 @@ class GithubCodeScanner(ScannerPlugin):
         return ValidationResult.ok()
 
     async def scan(self, config: ScanConfig) -> ScanResult:
-        gh = Github(config.github_token)
+        gh = Github(config.github_token_value())
         repositories: list[Repository] = []
         coverage_gaps: list[CoverageGap] = []
         errors: list[str] = []

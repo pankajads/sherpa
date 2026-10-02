@@ -34,4 +34,21 @@ jobs:
         run: ruff format --check .
 
       - name: Run tests
+        env:
+          # tests/integration/test_credential_leak.py copies every artifact it produces here
+          SHERPA_LEAK_ARTIFACT_DIR: ${{ runner.temp }}/sherpa-artifacts
         run: pytest --cov=sherpa --cov-report=term-missing --cov-fail-under=70 -q
+
+      - name: Secret scan of Sherpa outputs (gitleaks)
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/sherpa-artifacts
+          GITLEAKS_VERSION: "8.28.0"
+          GITLEAKS_SHA256: a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb
+        run: |
+          set -euo pipefail
+          # Fail rather than pass vacuously if the leak test stopped exporting artifacts.
+          test -n "$(ls -A "$ARTIFACT_DIR" 2>/dev/null)" || { echo "::error::No artifacts in $ARTIFACT_DIR"; exit 1; }
+          curl -sSfL -o gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum -c -
+          tar -xzf gitleaks.tgz gitleaks
+          ./gitleaks dir "$ARTIFACT_DIR" --no-banner --redact --exit-code 1

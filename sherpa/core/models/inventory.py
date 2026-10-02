@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, SecretStr, model_validator
 
 from .enums import (
     DependencyPlane,
@@ -109,7 +109,9 @@ class ScanConfig(BaseModel):
     aws_regions: list[str] = Field(default_factory=list)
     assume_role_arn: str | None = None
     github_org: str | None = None
-    github_token: str | None = None
+    # Credentials are held in memory only: excluded from every dump/serialisation and
+    # masked in repr, so they never reach snapshots, reports, the store or logs.
+    github_token: SecretStr | None = Field(default=None, exclude=True, repr=False)
     service_categories: list[str] = Field(
         default_factory=lambda: ["compute", "storage", "networking", "messaging", "security"]
     )
@@ -122,6 +124,10 @@ class ScanConfig(BaseModel):
         if not self.aws_accounts and not self.github_org:
             raise ValueError("At least one of aws_accounts or github_org must be provided")
         return self
+
+    def github_token_value(self) -> str | None:
+        """Return the raw GitHub token for authenticating API clients. Never persist it."""
+        return self.github_token.get_secret_value() if self.github_token else None
 
 
 class InventorySnapshot(BaseModel):
