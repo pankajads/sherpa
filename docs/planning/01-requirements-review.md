@@ -18,7 +18,7 @@
 
 | Source | Found | Notes |
 |---|---|---|
-| GitHub wiki (`sherpa.wiki.git`) | **Not accessible / not present** | Clone requires auth. If a wiki exists, it was not reviewed. **Action: confirm whether a wiki exists.** |
+| GitHub wiki | Not used | Confirmed by owner: README.md and CLAUDE.md are the requirement sources. |
 | GitHub issues / PRs | None | No backlog exists yet. |
 | `README.md` | Yes | Planning document: problem, goals, architecture, paths, compliance, roadmap. |
 | `CLAUDE.md` | Yes | Design principles (plugin interface, vendor-neutral, compliance-as-flag, determinism, AWS→AWS first). Its status line ("pre-code") is **stale**. |
@@ -119,7 +119,15 @@ Grouped by what blocks adoption. **Bold = needed for MVP.**
 
 ---
 
-## 5. Decisions needed from you (these change the plan)
+## 5. Decisions
+
+**Resolved 2026-10-02** (details in [02-phased-plan.md §0](02-phased-plan.md)): AWS-only MVP; online + offline collection; CLI to collect, GUI to decide (GUI as Phase 1.5 fast follow); fixed stage gates; GUI for the acquirer with inventory-only access for the target; chat in Phase 2, read-only and grounded; self-hosted only. Requirement sources confirmed as README.md + CLAUDE.md.
+
+**Still open:**
+- Is the first SCM GitHub only (item 3 below)?
+- Is there a design partner or a completed acquisition to test against (item 4 below)?
+
+Original questions:
 
 1. **Who runs it in the MVP — the acquirer post-close, or the target pre-close?** I recommend supporting both via G-02, because pre-close is when planning value is highest.
 2. **Is an LLM in the MVP at all?** I recommend **no**: deterministic rules first, with LLM explanations as an opt-in in Phase 2. That avoids sending deal data to a third party and keeps outputs reproducible.
