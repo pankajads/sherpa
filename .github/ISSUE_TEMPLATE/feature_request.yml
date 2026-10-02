@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest a capability or improvement.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the situation in an acquisition or migration where Sherpa falls short. Problems first, solutions second.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+  - type: textarea
+    id: success
+    attributes:
+      label: How would we know it works?
+      description: Measurable success criteria and how to test them. Every Sherpa task needs both.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Discover (scanning, inventory, workloads)
+        - Assess (rules, compliance, paved road)
+        - Plan (options, effort, waves)
+        - Review & approval / GUI
+        - Packaging, docs, other
+    validations:
+      required: true

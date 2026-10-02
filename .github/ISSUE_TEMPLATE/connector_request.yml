@@ -1,0 +1,38 @@
+name: Connector request
+description: Request (or offer to build) a scanner for another cloud, source-control or CI/CD system.
+labels: ["connector"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The MVP covers **AWS, GitHub and GitHub Actions** only. Other connectors are planned for later phases (see the [Roadmap](https://github.com/pankajads/sherpa/wiki/Roadmap)). Requests help us prioritise; offers to build are very welcome.
+  - type: input
+    id: system
+    attributes:
+      label: System
+      placeholder: "e.g. GitLab, Jenkins, Azure, Bitbucket"
+    validations:
+      required: true
+  - type: dropdown
+    id: plane
+    attributes:
+      label: Plane
+      options:
+        - Cloud infrastructure
+        - Source code
+        - CI/CD pipelines
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it matters
+      description: How common is it in the acquisitions you've seen? What would the connector need to discover?
+    validations:
+      required: true
+  - type: checkboxes
+    id: offer
+    attributes:
+      label: Contribution
+      options:
+        - label: I'd like to build this connector myself

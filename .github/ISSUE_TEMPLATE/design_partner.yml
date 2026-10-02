@@ -1,0 +1,39 @@
+name: Design partner interest
+description: Register interest in piloting Sherpa on a real or completed acquisition.
+labels: ["design-partner"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **This issue is public.** Don't name an acquisition, target company or timeline that isn't already public. If you'd rather not be public at all, contact the maintainer privately via their [GitHub profile](https://github.com/pankajads) instead.
+  - type: dropdown
+    id: situation
+    attributes:
+      label: Your situation
+      options:
+        - Upcoming or in-progress AWS → AWS acquisition
+        - Completed acquisition; can share anonymised effort actuals for back-testing
+        - Advisory / consultancy running integrations for clients
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: role
+    attributes:
+      label: Your role
+      options:
+        - Integration lead / PMO
+        - Cloud or migration architect
+        - Platform engineering
+        - Security / compliance
+        - Other
+  - type: textarea
+    id: interest
+    attributes:
+      label: What would make this valuable for you?
+      description: The decisions you need to make, and what's slow or risky today.
+  - type: input
+    id: contact
+    attributes:
+      label: Preferred contact (optional)
+      description: Public. Leave empty and we'll reply here.

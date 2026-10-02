@@ -1,0 +1,41 @@
+name: Bug report
+description: Something in Sherpa doesn't work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Remove account IDs, resource names, tokens and anything confidential** from logs and output before pasting them here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. sherpa discover --aws-account ... --regions ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Relevant output (redacted)
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Sherpa version or commit
+      placeholder: "e.g. main @ 245856c"
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      placeholder: "e.g. Python 3.12, macOS 15 / Ubuntu 24.04"

@@ -152,6 +152,10 @@ sherpa discover --aws-account 123456789012 --regions us-east-1 --github-org my-o
 
 > **If you ran Sherpa before October 2026 with `--db <file>`, or shared a `snapshot_*.json`:** those files contain your GitHub token in plain text. Rotate the token and delete or scrub the files.
 
+## Contributing
+
+Practitioners, design partners and engineers are all welcome. See [CONTRIBUTING.md](CONTRIBUTING.md), start with a [`good first issue`](https://github.com/pankajads/sherpa/issues?q=is%3Aopen+label%3A%22good+first+issue%22), and read the [wiki](https://github.com/pankajads/sherpa/wiki) for the philosophy and architecture. Report vulnerabilities privately per [SECURITY.md](SECURITY.md).
+
 ## Governance & License
 
 Sherpa is released under the **MIT license** to maximize adoption and community contribution. Every company doing M&A hits this discovery problem. Building in the open lets anyone review and trust the scanner connectors, recommendation logic and compliance rules, rather than being locked into a single vendor's proprietary migration tooling.
