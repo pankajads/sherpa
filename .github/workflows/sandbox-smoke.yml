@@ -1,0 +1,48 @@
+name: Sandbox smoke test
+
+# Proves the sandbox bootstrap (infra/sandbox/) works: OIDC sign-in, role hops into every
+# target account, the SCP guardrails, and a real multi-account Sherpa scan. Creates nothing.
+# Manual only. The repo is public, so account IDs are masked and no snapshot is uploaded.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: sandbox
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    environment: sandbox
+    timeout-minutes: 20
+    env:
+      CI_ACCOUNT: ${{ vars.SANDBOX_CI_ACCOUNT_ID }}
+      TARGETS: ${{ vars.SANDBOX_TARGET_ACCOUNT_IDS }}
+      SHERPA_AWS_EXTERNAL_ID: ${{ vars.SANDBOX_EXTERNAL_ID }}
+    steps:
+      - name: Mask account IDs
+        run: |
+          for id in $CI_ACCOUNT ${TARGETS//,/ }; do echo "::add-mask::$id"; done
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Sherpa
+        run: pip install -e .
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.SANDBOX_CI_ACCOUNT_ID }}:role/sherpa-ref/SherpaRefCi
+          role-session-name: sherpa-smoke-${{ github.run_id }}
+          aws-region: us-east-1
+
+      - name: Smoke test
+        run: infra/sandbox/smoke.sh

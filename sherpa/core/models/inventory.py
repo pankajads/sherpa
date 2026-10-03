@@ -87,12 +87,28 @@ class PackageDependency(BaseModel):
     model_config = {"frozen": True}
 
 
+class DeployTarget(BaseModel):
+    """A resource a pipeline job names explicitly as what it deploys to (with provenance).
+
+    `value` is an ARN when the workflow gives one, otherwise a resource name that the
+    cross-plane linker resolves against the inventory.
+    """
+
+    resource_type: ResourceType
+    value: str
+    method: str  # how it was found, e.g. "configure-aws-credentials:role-to-assume"
+    confidence: str = "high"  # high, medium, low
+
+    model_config = {"frozen": True}
+
+
 class PipelineStage(BaseModel):
     name: str
     trigger_type: str = ""  # push, pull_request, schedule, workflow_dispatch
     aws_deploy_actions: list[str] = Field(default_factory=list)
     target_accounts: list[str] = Field(default_factory=list)
     target_regions: list[str] = Field(default_factory=list)
+    deploy_targets: list[DeployTarget] = Field(default_factory=list)
 
     model_config = {"frozen": True}
 
@@ -100,6 +116,12 @@ class PipelineStage(BaseModel):
     @classmethod
     def _sort_lists(cls, v: list[str]) -> list[str]:
         return sorted(v)
+
+    @field_validator("deploy_targets")
+    @classmethod
+    def _sort_targets(cls, v: list[DeployTarget]) -> list[DeployTarget]:
+        unique = {_canonical(t.model_dump(mode="json")): t for t in v}
+        return [unique[k] for k in sorted(unique)]
 
 
 class Repository(BaseModel):

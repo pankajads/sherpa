@@ -7,8 +7,10 @@ from hypothesis import strategies as st
 
 from sherpa.core.models import (
     CoverageGap,
+    DeployTarget,
     InventorySnapshot,
     Pipeline,
+    PipelineStage,
     Repository,
     Resource,
     ResourceDependency,
@@ -70,6 +72,21 @@ def inventories(draw):
             pipeline_type="github_actions",
             repo_id=f"github.com/acme/repo-{j}",
             deploys_to_accounts=draw(st.lists(st.sampled_from(ACCOUNTS), max_size=2, unique=True)),
+            stages=[
+                PipelineStage(
+                    name=job,
+                    deploy_targets=[
+                        # By ARN, or by a name that may match several resources (ambiguity).
+                        DeployTarget(
+                            resource_type=ResourceType.EC2_INSTANCE,
+                            value=draw(st.sampled_from([*ids, *WORDS])),
+                            method="test",
+                        )
+                        for _ in range(draw(st.integers(min_value=0, max_value=3)))
+                    ],
+                )
+                for job in draw(st.lists(st.sampled_from(["build", "deploy"]), unique=True))
+            ],
         )
         for j in range(draw(st.integers(min_value=0, max_value=3)))
     ]

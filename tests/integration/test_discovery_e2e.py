@@ -14,8 +14,10 @@ from unittest.mock import AsyncMock, patch
 
 from sherpa.core.interfaces import ScanResult
 from sherpa.core.models import (
+    DeployTarget,
     NamingConvention,
     Pipeline,
+    PipelineStage,
     Repository,
     Resource,
     ScanConfig,
@@ -340,25 +342,47 @@ class TestCrossPlaneLinks:
         assert len(cross_deps) >= 1
         assert any("acme/infra" in d.source_id for d in cross_deps)
 
-    async def test_pipeline_deploying_to_account_gets_linked(self):
-        resource = _resource("checkout-api")
+    async def test_pipeline_links_only_to_what_it_names(self):
+        # Regression (C-6, #27): knowing the account a pipeline deploys into used to link it
+        # to every resource in that account.
+        named, unrelated = _resource("checkout-api"), _resource("reporting-batch")
         pipe = Pipeline(
             id="github.com/acme/infra/.github/workflows/deploy.yml",
             pipeline_type="github_actions",
             repo_id="github.com/acme/infra",
             deploys_to_accounts=[ACCOUNT],
+            stages=[
+                PipelineStage(
+                    name="deploy",
+                    deploy_targets=[
+                        DeployTarget(
+                            resource_type=ResourceType.EC2_INSTANCE,
+                            value=named.id,
+                            method="test",
+                        )
+                    ],
+                )
+            ],
         )
 
-        cloud_result = ScanResult(scanner_type="aws-cloud", resources=[resource])
+        cloud_result = ScanResult(scanner_type="aws-cloud", resources=[named, unrelated])
         pipe_result = ScanResult(scanner_type="github-actions-pipeline", pipelines=[pipe])
 
         with _patch_scanners(cloud_result=cloud_result, pipeline_result=pipe_result):
             store = InventoryStore()
             snapshot = await run_discovery(_full_config(), store)
 
-        r = snapshot.resources[0]
-        deploy_deps = [d for d in r.dependencies if d.dependency_type == DependencyType.DEPLOYS_TO]
-        assert len(deploy_deps) >= 1
+        deploys = {
+            r.name: [d for d in r.dependencies if d.dependency_type == DependencyType.DEPLOYS_TO]
+            for r in snapshot.resources
+        }
+        assert [d.source_id for d in deploys["checkout-api"]] == [pipe.id]
+        assert deploys["checkout-api"][0].metadata == {
+            "method": "test",
+            "confidence": "high",
+            "job": "deploy",
+        }
+        assert deploys["reporting-batch"] == []
 
 
 # ------------------------------------------------------------------ coverage validation

@@ -300,10 +300,9 @@ def test_regression_gate(tmp_path, capsys):
 def test_golden_estate_baseline():
     """Today's scanner against the golden estate's answer key. Update deliberately.
 
-    Known defect behind the numbers: finding C-6 links the deploy workflow to every
-    resource in the account (deploys_to precision 1/17), including two known traps.
-    (The first baseline was 16/17 recall and 3/4 link recall, from an SQS ARN bug this
-    scorer exposed, now fixed.)
+    History: the first baseline was 16/17 recall and 3/4 link recall, from an SQS ARN bug this
+    scorer exposed. Then finding C-6 (#27) linked the deploy workflow to every resource in the
+    account: link precision 4/20, deploys_to 1/17, both trap links present.
     """
     snapshot = json.loads(GOLDEN_SNAPSHOT.read_text())
     result = score(snapshot, AnswerKey.from_file(GOLDEN_KEY))
@@ -311,14 +310,14 @@ def test_golden_estate_baseline():
     assert {k: (v["hit"], v["total"]) for k, v in result["headline"].items()} == {
         "resource_recall": (17, 17),
         "workload_accuracy": (17, 17),
-        "link_precision": (4, 20),
+        "link_precision": (4, 4),
         "link_recall": (4, 4),
     }
     assert result["missing_resources"] == []
     assert result["unexpected_resources"] == []
-    assert len(result["forbidden_links_found"]) == 2
+    assert result["forbidden_links_found"] == []
     assert result["link_by_type"]["deploys_to"]["precision"] == {
         "hit": 1,
-        "total": 17,
-        "percent": 5.9,
+        "total": 1,
+        "percent": 100.0,
     }
