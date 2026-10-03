@@ -82,7 +82,7 @@ class TestRoundTrip:
 
         assert reloaded is not None
         assert reloaded.to_canonical_json() == snapshot.to_canonical_json()
-        assert sum(len(r.dependencies) for r in reloaded.resources) == 23
+        assert sum(len(r.dependencies) for r in reloaded.resources) == 24
 
     async def test_gaps_errors_and_identities_survive(self, tmp_path):
         from sherpa.core.models import CoverageGap, ErrorClass, ScanIdentity

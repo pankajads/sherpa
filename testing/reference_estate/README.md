@@ -38,11 +38,11 @@ With `--history`, each run is appended to a JSONL trend file. The command exits 
 
 ### Baseline (golden fake estate, October 2026)
 
-| Metric | Score | Why |
-|---|---|---|
-| X-1 resource recall | 94.1% (16/17) | SQS IDs built as `…:queue/<name>` instead of the real ARN `…:<name>` |
-| X-2 workload accuracy | 100% (16/16) | |
-| X-3 link precision | 15.8% (3/19) | Finding C-6: the deploy workflow is linked to every resource in the account |
-| X-3 link recall | 75% (3/4) | The Terraform → SQS link is missed (same SQS ID bug) |
+| Metric | First score | After the SQS ARN fix | Remaining cause |
+|---|---|---|---|
+| X-1 resource recall | 94.1% (16/17) | **100% (17/17)** | |
+| X-2 workload accuracy | 100% (16/16) | **100% (17/17)** | |
+| X-3 link precision | 15.8% (3/19) | **20% (4/20)** | Finding C-6: the deploy workflow is linked to every resource in the account (`deploys_to` precision 1/17) |
+| X-3 link recall | 75% (3/4) | **100% (4/4)** | |
 
-`tests/scoring/test_golden_estate_baseline` pins these numbers, so any change to them shows up in review.
+The first score exposed that SQS IDs were built as `…:queue/<name>` instead of the real ARN `…:<name>`, so neither the Terraform reference nor the Lambda event source could resolve to the queue. `tests/scoring/test_golden_estate_baseline` pins the current numbers, so any change shows up in review.

@@ -300,25 +300,22 @@ def test_regression_gate(tmp_path, capsys):
 def test_golden_estate_baseline():
     """Today's scanner against the golden estate's answer key. Update deliberately.
 
-    Known defects behind the numbers:
-    - SQS IDs are built as ...:queue/<name>, not the real ARN ...:<name>, so the queue
-      isn't recognised (recall 16/17) and the Terraform -> queue link is missed.
-    - Finding C-6: the deploy workflow is linked to every resource in the account
-      (deploys_to precision 1/17), including two known false-link traps.
+    Known defect behind the numbers: finding C-6 links the deploy workflow to every
+    resource in the account (deploys_to precision 1/17), including two known traps.
+    (The first baseline was 16/17 recall and 3/4 link recall, from an SQS ARN bug this
+    scorer exposed, now fixed.)
     """
     snapshot = json.loads(GOLDEN_SNAPSHOT.read_text())
     result = score(snapshot, AnswerKey.from_file(GOLDEN_KEY))
 
     assert {k: (v["hit"], v["total"]) for k, v in result["headline"].items()} == {
-        "resource_recall": (16, 17),
-        "workload_accuracy": (16, 16),
-        "link_precision": (3, 19),
-        "link_recall": (3, 4),
+        "resource_recall": (17, 17),
+        "workload_accuracy": (17, 17),
+        "link_precision": (4, 20),
+        "link_recall": (4, 4),
     }
-    assert result["missing_resources"] == ["payments-queue"]
-    assert result["unexpected_resources"] == [
-        "arn:aws:sqs:us-east-1:123456789012:queue/payments-queue"
-    ]
+    assert result["missing_resources"] == []
+    assert result["unexpected_resources"] == []
     assert len(result["forbidden_links_found"]) == 2
     assert result["link_by_type"]["deploys_to"]["precision"] == {
         "hit": 1,
