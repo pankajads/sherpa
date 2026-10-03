@@ -44,7 +44,7 @@ All steps happen in the management account's console, in `us-east-1`.
    - Parameters:
      - `CiAccountId`: the `sherpa-ci` account ID;
      - `TargetAccountIds`: the three `sherpa-ref-*` account IDs, comma-separated;
-     - leave the rest at their defaults.
+     - leave the rest at their defaults. `GitHubRepository` is in the form GitHub uses in its OIDC tokens, `owner@ownerId/repo@repoId` (for this repo, `pankajads@21303111/sherpa@1303466252`). The plain `owner/repo` form fails with "Not authorized to perform sts:AssumeRoleWithWebIdentity". For a fork, read your own value from the smoke test's **Show OIDC token claims** step.
    - Deployment targets: the `sherpa-sandbox` OU. Turn **automatic deployment on**. Region: **US East (N. Virginia)** only.
    - Acknowledge that it creates named IAM resources, then submit. All four stack instances should reach `SUCCEEDED` in a few minutes.
 3. **Create the GitHub environment.**

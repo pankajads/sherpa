@@ -47,7 +47,8 @@ jobs:
           payload=$(cut -d. -f2 <<<"$token" | tr '_-' '/+')
           while (( ${#payload} % 4 )); do payload+="="; done
           base64 -d <<<"$payload" | jq '{sub, aud, repository, environment, ref}'
-          echo "The SherpaRefCi trust policy expects sub = repo:${{ github.repository }}:environment:sandbox"
+          echo "SherpaRefCi's trust policy must expect exactly this sub (StackSet parameters"
+          echo "GitHubRepository and GitHubEnvironment); see infra/sandbox/README.md."
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:

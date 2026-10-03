@@ -16,7 +16,12 @@ Parameters:
     Description: The reference-estate accounts (sherpa-ref-*), comma-separated.
   GitHubRepository:
     Type: String
-    Default: pankajads/sherpa
+    Default: pankajads@21303111/sherpa@1303466252
+    Description: >-
+      The repository as GitHub writes it in the OIDC token's sub claim:
+      owner@ownerId/repo@repoId. The immutable IDs mean a deleted and re-created repo with
+      the same name can't assume the role. To find it, see the smoke test's "Show OIDC token
+      claims" step, or the userName of a failed AssumeRoleWithWebIdentity event in CloudTrail.
   GitHubEnvironment:
     Type: String
     Default: sandbox
