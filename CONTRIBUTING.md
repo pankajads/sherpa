@@ -30,9 +30,9 @@ Requires Python 3.12+.
 ```bash
 git clone https://github.com/pankajads/sherpa && cd sherpa
 python3.12 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[dev]" -e tests/fixtures/dummy_plugin   # the second is a test-only plugin
 pytest
-ruff check . && ruff format --check .
+ruff check . && ruff format --check . && lint-imports
 ```
 
 No AWS account or GitHub token is needed for the test suite. AWS is mocked with moto or async mocks, and GitHub with mocked PyGithub objects.
@@ -54,7 +54,7 @@ These come from [CLAUDE.md](CLAUDE.md#design-principles). A PR that breaks one w
 - **No cloud SDK in the core.** Cloud-specific code lives in scanner plugins.
 
 ### Adding a scanner (connector)
-Implement `ScannerPlugin` (`sherpa/core/interfaces/scanner.py`) and register it under `[project.entry_points."sherpa.scanners"]`. A new connector must not require changes to core or orchestrator code. The MVP is AWS + GitHub only; for other connectors, open a *connector request* issue first, so we can agree on scope and timing.
+Implement `ScannerPlugin` and register it under `[project.entry-points."sherpa.scanners"]` (with a hyphen). A new connector must not require changes to core or orchestrator code; `lint-imports` enforces this, and the contract suite in `tests/contract/` checks every installed scanner. See [docs/plugins.md](docs/plugins.md). The MVP is AWS + GitHub only; for other connectors, open a *connector request* issue first, so we can agree on scope and timing.
 
 ## Questions
 Open a [discussion](https://github.com/pankajads/sherpa/discussions) or an issue.

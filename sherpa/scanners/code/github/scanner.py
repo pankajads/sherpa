@@ -5,7 +5,7 @@ from typing import Any
 
 from github import Github, GithubException
 
-from sherpa.core.interfaces import ScannerPlugin, ScanResult, ValidationResult
+from sherpa.core.interfaces import ScannerPlane, ScannerPlugin, ScanResult, ValidationResult
 from sherpa.core.models import CoverageGap, PackageDependency, Repository, ScanConfig
 from sherpa.core.models.enums import IaCType
 
@@ -90,6 +90,13 @@ class GithubCodeScanner(ScannerPlugin):
     def scanner_type(self) -> str:
         return "github-code"
 
+    @property
+    def plane(self) -> ScannerPlane:
+        return ScannerPlane.CODE
+
+    def applies_to(self, config: ScanConfig) -> bool:
+        return bool(config.github_org)
+
     async def validate_config(self, config: ScanConfig) -> ValidationResult:
         if not config.github_org:
             return ValidationResult.fail("github_org is required for github-code scanner")
@@ -107,6 +114,13 @@ class GithubCodeScanner(ScannerPlugin):
             return ScanResult(
                 scanner_type=self.scanner_type,
                 errors=[f"Cannot access org {config.github_org}: {exc}"],
+                coverage_gaps=[
+                    CoverageGap(
+                        description=f"GitHub org {config.github_org} could not be read: "
+                        "no repositories were scanned",
+                        severity="error",
+                    )
+                ],
             )
 
         for repo in sorted(org.get_repos(), key=lambda r: r.full_name):
