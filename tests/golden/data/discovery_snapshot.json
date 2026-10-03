@@ -577,6 +577,15 @@
       "tags": {}
     }
   ],
+  "scan_identities": [
+    {
+      "detail": "",
+      "method": "current-credentials",
+      "principal": "arn:aws:iam::123456789012:user/sherpa-scanner",
+      "scope": "aws-account:123456789012",
+      "verified": true
+    }
+  ],
   "snapshot_id": "<snapshot-id>",
   "started_at": "<timestamp>",
   "workloads": [

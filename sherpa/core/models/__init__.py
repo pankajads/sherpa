@@ -11,6 +11,7 @@ from .inventory import (
     Resource,
     ResourceDependency,
     ScanConfig,
+    ScanIdentity,
     Workload,
 )
 from .naming import NamingConvention
@@ -33,5 +34,6 @@ __all__ = [
     "ResourceDependency",
     "ResourceType",
     "ScanConfig",
+    "ScanIdentity",
     "Workload",
 ]

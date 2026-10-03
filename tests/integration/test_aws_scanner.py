@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from sherpa.core.models import ScanConfig
 from sherpa.core.models.enums import DependencyType, ResourceType
 from sherpa.scanners.cloud.aws.collector import (
@@ -477,6 +479,27 @@ class TestCollectIAM:
 # ------------------------------------------------------------------ Full scanner
 
 
+class _IdentityOnlySession:
+    """Session stand-in: confirms identity for ACCOUNT; collectors are patched per test."""
+
+    def client(self, service, **_kw):
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        client.get_caller_identity = AsyncMock(
+            return_value={"Account": ACCOUNT, "Arn": f"arn:aws:iam::{ACCOUNT}:user/test"}
+        )
+        return client
+
+
+@pytest.fixture(autouse=True)
+def _identity_session():
+    with patch(
+        "sherpa.scanners.cloud.aws.scanner.aioboto3.Session", return_value=_IdentityOnlySession()
+    ):
+        yield
+
+
 class TestAwsCloudScanner:
     async def test_validate_config_fails_without_accounts(self):
         scanner = AwsCloudScanner()
@@ -564,4 +587,5 @@ class TestAwsCloudScanner:
             result = await scanner.scan(config)
 
         ids = [r.id for r in result.resources]
+        assert len(ids) == 3  # guard: an empty result would be trivially sorted
         assert ids == sorted(ids)

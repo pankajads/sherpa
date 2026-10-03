@@ -316,6 +316,22 @@ class ScanConfig(BaseModel):
         return self.github_token.get_secret_value() if self.github_token else None
 
 
+class ScanIdentity(BaseModel):
+    """Who scanned what: the verified principal behind each scanned scope (audit trail).
+
+    `scope` names what was scanned, e.g. "aws-account:111111111111". `verified` is False when
+    the scope was skipped because its identity could not be confirmed; `detail` says why.
+    """
+
+    scope: str
+    principal: str = ""  # e.g. arn:aws:sts::111111111111:assumed-role/SherpaReadOnly/...
+    method: str = ""  # e.g. "assumed-role", "current-credentials"
+    verified: bool = False
+    detail: str = ""
+
+    model_config = {"frozen": True}
+
+
 class InventorySnapshot(BaseModel):
     snapshot_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -327,8 +343,19 @@ class InventorySnapshot(BaseModel):
     workloads: list[Workload] = Field(default_factory=list)
     coverage_gaps: list[CoverageGap] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+    scan_identities: list[ScanIdentity] = Field(default_factory=list)
 
     model_config = {"frozen": True}
+
+    @field_validator("scan_identities")
+    @classmethod
+    def _sort_identities(cls, v: list[ScanIdentity]) -> list[ScanIdentity]:
+        return sorted(v, key=lambda i: (i.scope, i.principal))
+
+    @property
+    def unverified_scopes(self) -> list[str]:
+        """Scopes skipped because their identity could not be confirmed."""
+        return [i.scope for i in self.scan_identities if not i.verified]
 
     @field_validator("resources", "repositories", "pipelines")
     @classmethod

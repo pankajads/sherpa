@@ -49,10 +49,12 @@ class FakeAws:
         ttl=timedelta(hours=1),
         fail_roles: set[str] = frozenset(),
         identity_override: dict[str, str] | None = None,
+        identity_fails: set[str] = frozenset(),
     ):
         self.now, self.ttl = now, ttl
         self.fail_roles = fail_roles
         self.identity_override = identity_override or {}
+        self.identity_fails = identity_fails
         self.assume_calls: list[dict] = []
         self.client_calls: list[tuple[str, str, str]] = []  # (service, region, identity)
 
@@ -86,6 +88,15 @@ class _FakeClient:
                 "Expiration": self.aws.now() + self.aws.ttl,
             }
         }
+
+    async def get_caller_identity(self):
+        if self.identity in self.aws.identity_fails:
+            raise ConnectionError("sts endpoint unreachable")
+        if self.identity == AMBIENT:
+            arn = f"arn:aws:iam::{AMBIENT}:user/alice"
+        else:
+            arn = f"arn:aws:sts::{self.identity}:assumed-role/SherpaReadOnly/{ROLE_SESSION_NAME}"
+        return {"Account": self.identity, "Arn": arn}
 
     def get_paginator(self, operation):
         if operation == "list_queues":
@@ -162,17 +173,21 @@ class TestEachAccountGetsItsOwnCredentials:
             f"arn:aws:iam::{B}:role/custom/Legacy": "b-only",
         }
 
-    async def test_wrong_role_mapping_is_relabelled_and_flagged(self):
-        # Account B's role actually lands in account C (misconfigured trust / mapping).
-        aws = FakeAws(identity_override={B: C})
-        result = await _scan(_cfg(aws_accounts=[A, B], aws_regions=["us-east-1"]), aws)
+    def test_resources_labelled_with_arn_owner(self):
+        # Defence in depth for shared resources: a resource listed while scanning B whose ARN
+        # names C is labelled C, with a gap naming both accounts.
+        from sherpa.core.models import Resource, ResourceType
+        from sherpa.scanners.cloud.aws.scanner import _attribute_to_owner
 
-        iam = {r.name: r.account_id for r in result.resources if r.id.startswith("arn:aws:iam")}
-        assert iam[f"app-{C}"] == C  # labelled with the true owner, not B
-        assert any(
-            f"account {B} returned" in g.description and C in g.description
-            for g in result.coverage_gaps
+        shared = Resource(
+            id=f"arn:aws:iam::{C}:role/shared",
+            resource_type=ResourceType.IAM_ROLE,
+            region="global",
+            account_id=B,
         )
+        fixed, gaps = _attribute_to_owner([shared])
+        assert fixed[0].account_id == C
+        assert len(gaps) == 1 and f"account {B} returned" in gaps[0].description
 
 
 # ------------------------------------------------------------------ regions
@@ -343,7 +358,7 @@ accounts:
     def test_regions_flag_overrides_file_default(self, tmp_path):
         aws = FakeAws()
         f = self._accounts_file(
-            tmp_path, f'default_regions: [us-east-1]\naccounts:\n  - id: "{A}"\n'
+            tmp_path, f'default_regions: [us-east-1]\naccounts:\n  - id: "{AMBIENT}"\n'
         )
         result = self._run(["--accounts-file", f, "--regions", "ap-south-1"], aws, tmp_path)
 
@@ -370,3 +385,71 @@ accounts:
 
         assert result.exit_code == 1
         assert "single account" in result.output
+
+
+# ------------------------------------------------------------------ identity verification (#12)
+
+
+class TestIdentityVerification:
+    async def test_wrong_profile_skips_account_instead_of_mislabelling(self):
+        # Told to scan A, but the current credentials (e.g. a stale AWS_PROFILE) belong to
+        # AMBIENT. Without the check, AMBIENT's SQS queue would be labelled A: SQS and EC2
+        # IDs are built from the requested account, so the ARN check cannot catch it.
+        aws = FakeAws()
+        result = await _scan(_cfg(aws_accounts=[A], aws_regions=["us-east-1"]), aws)
+
+        assert result.resources == []
+        assert [svc for svc, _, _ in aws.client_calls] == ["sts"]  # no collector ran
+        (identity,) = result.scan_identities
+        assert identity.scope == f"aws-account:{A}" and not identity.verified
+        assert f"expected account {A}" in identity.detail
+        assert f"belong to {AMBIENT}" in identity.detail
+        assert f"arn:aws:iam::{AMBIENT}:user/alice" in identity.detail
+        assert "AWS_PROFILE" in identity.detail
+        assert any(g.severity == "error" and A in g.description for g in result.coverage_gaps)
+
+    async def test_role_landing_in_wrong_account_is_skipped(self):
+        aws = FakeAws(identity_override={B: C})  # B's role yields credentials in C
+        result = await _scan(_cfg(aws_accounts=[A, B], aws_regions=["us-east-1"]), aws)
+
+        assert {r.account_id for r in result.resources} == {A}
+        assert all(who != C for svc, _, who in aws.client_calls if svc != "sts")
+        failed = [i for i in result.scan_identities if not i.verified]
+        assert [i.scope for i in failed] == [f"aws-account:{B}"]
+        assert "role mapping" in failed[0].detail
+
+    async def test_unconfirmable_identity_fails_closed(self):
+        aws = FakeAws(identity_fails={B})
+        result = await _scan(_cfg(aws_accounts=[A, B], aws_regions=["us-east-1"]), aws)
+
+        assert {r.account_id for r in result.resources} == {A}
+        failed = [i for i in result.scan_identities if not i.verified]
+        assert len(failed) == 1 and "cannot confirm" in failed[0].detail
+
+    async def test_verified_identities_are_recorded(self):
+        result = await _scan(_cfg(aws_accounts=[A, B], aws_regions=["us-east-1"]), FakeAws())
+
+        assert [(i.scope, i.method, i.verified) for i in result.scan_identities] == [
+            (f"aws-account:{A}", "assumed-role", True),
+            (f"aws-account:{B}", "assumed-role", True),
+        ]
+        assert result.scan_identities[0].principal == (
+            f"arn:aws:sts::{A}:assumed-role/SherpaReadOnly/{ROLE_SESSION_NAME}"
+        )
+
+    def test_cli_exits_2_and_still_saves_snapshot(self, tmp_path):
+        from click.testing import CliRunner
+
+        from sherpa.cli.main import EXIT_INCOMPLETE_SCAN, cli
+
+        out = tmp_path / "out"
+        with patch("sherpa.scanners.cloud.aws.scanner.aioboto3.Session", return_value=FakeAws()):
+            result = CliRunner().invoke(
+                cli, ["discover", "--aws-account", A, "--output", str(out)], env={"COLUMNS": "200"}
+            )
+
+        assert result.exit_code == EXIT_INCOMPLETE_SCAN == 2, result.output
+        assert "Incomplete scan" in result.output and A in result.output
+        assert len(list(out.glob("snapshot_*.json"))) == 1
+        report = next(out.glob("report_*.md")).read_text()
+        assert f"❌ `aws-account:{A}`" in report

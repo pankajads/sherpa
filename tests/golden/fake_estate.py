@@ -289,6 +289,9 @@ class _FakeAwsClient:
         paginator.paginate.side_effect = lambda **_kw: _AsyncPages(pages)
         return paginator
 
+    async def get_caller_identity(self):
+        return {"Account": ACCOUNT, "Arn": f"arn:aws:iam::{ACCOUNT}:user/sherpa-scanner"}
+
     async def list_buckets(self):
         created = datetime(2024, 1, 15, tzinfo=UTC)
         buckets = [{"Name": n, "CreationDate": created} for n in _BUCKETS]

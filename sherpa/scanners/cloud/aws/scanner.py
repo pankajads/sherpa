@@ -8,7 +8,7 @@ from typing import Any
 import aioboto3
 
 from sherpa.core.interfaces import ScannerPlugin, ScanResult, ValidationResult
-from sherpa.core.models import AwsTarget, CoverageGap, Resource, ScanConfig
+from sherpa.core.models import AwsTarget, CoverageGap, Resource, ScanConfig, ScanIdentity
 
 from .collector import (
     collect_dynamodb,
@@ -131,26 +131,26 @@ class AwsCloudScanner(ScannerPlugin):
         targets = config.aws_targets()
         accounts = {t.account_id: _AccountCredentials(session, t, self._now) for t in targets}
 
-        # Assume each account's role once, up front: one clear error per unreachable account
-        # instead of one per collector.
-        reachable: list[AwsTarget] = []
-        assumed = await asyncio.gather(
-            *(accounts[t.account_id].client_kwargs() for t in targets), return_exceptions=True
+        # Up front, per account: get its credentials (assuming the role once) and confirm
+        # with sts:GetCallerIdentity that they really belong to that account. Only verified
+        # accounts are scanned; a skipped account is reported once, never scanned under
+        # another account's label.
+        identities = await asyncio.gather(
+            *(self._verify_account(session, accounts[t.account_id], t) for t in targets)
         )
-        for target, result in zip(targets, assumed, strict=True):
-            if isinstance(result, BaseException):
-                errors.append(f"{target.account_id}: cannot assume {target.role_arn}: {result}")
-                coverage_gaps.append(
-                    CoverageGap(
-                        description=(
-                            f"Account {target.account_id} was not scanned: role assumption failed"
-                        ),
-                        affected_regions=target.regions,
-                        severity="error",
-                    )
-                )
-            else:
+        reachable: list[AwsTarget] = []
+        for target, identity in zip(targets, identities, strict=True):
+            if identity.verified:
                 reachable.append(target)
+                continue
+            errors.append(f"{target.account_id}: {identity.detail}")
+            coverage_gaps.append(
+                CoverageGap(
+                    description=f"Account {target.account_id} was not scanned: {identity.detail}",
+                    affected_regions=target.regions,
+                    severity="error",
+                )
+            )
 
         jobs: list[tuple[str, str, str]] = []
         tasks = []
@@ -204,7 +204,53 @@ class AwsCloudScanner(ScannerPlugin):
             resources=deduped,
             coverage_gaps=coverage_gaps,
             errors=errors,
+            scan_identities=list(identities),
         )
+
+    async def _verify_account(
+        self, session: Any, creds: _AccountCredentials, target: AwsTarget
+    ) -> ScanIdentity:
+        """Confirm the credentials for `target` belong to it. Never raises.
+
+        GetCallerIdentity needs no IAM permission and cannot be denied by policy, so this
+        adds nothing to the role Sherpa asks for.
+        """
+        scope = f"aws-account:{target.account_id}"
+        method = "assumed-role" if target.role_arn else "current-credentials"
+        try:
+            kwargs = await creds.client_kwargs()
+        except Exception as exc:
+            return ScanIdentity(
+                scope=scope,
+                method=method,
+                detail=f"cannot assume {target.role_arn}: {exc}",
+            )
+        region = target.regions[0] if target.regions else "us-east-1"
+        try:
+            async with session.client("sts", region_name=region, **kwargs) as sts:
+                who = await sts.get_caller_identity()
+        except Exception as exc:
+            return ScanIdentity(
+                scope=scope, method=method, detail=f"cannot confirm credentials identity: {exc}"
+            )
+        actual, principal = str(who.get("Account", "")), str(who.get("Arn", ""))
+        if actual != target.account_id:
+            hint = (
+                "check AWS_PROFILE / current credentials"
+                if not target.role_arn
+                else (f"check the role mapping for {target.role_arn}")
+            )
+            return ScanIdentity(
+                scope=scope,
+                principal=principal,
+                method=method,
+                detail=(
+                    f"expected account {target.account_id}, but these credentials belong to "
+                    f"{actual or 'an unknown account'} (signed in as {principal or 'unknown'}); "
+                    f"{hint}"
+                ),
+            )
+        return ScanIdentity(scope=scope, principal=principal, method=method, verified=True)
 
     async def _run_collector(
         self,

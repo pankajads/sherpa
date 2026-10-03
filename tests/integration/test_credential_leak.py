@@ -77,6 +77,12 @@ class _FakeAwsClient:
             }
         }
 
+    async def get_caller_identity(self):
+        return {
+            "Account": ACCOUNT,
+            "Arn": f"arn:aws:sts::{ACCOUNT}:assumed-role/SherpaReadOnly/SherpaDiscovery",
+        }
+
     def __getattr__(self, _name):
         return AsyncMock(return_value={})
 

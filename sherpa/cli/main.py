@@ -14,6 +14,10 @@ from sherpa.orchestrator import run_discovery
 
 console = Console()
 
+# Exit codes: 0 = complete scan, 1 = config error or failure, 2 = scan completed but one or
+# more scopes (e.g. AWS accounts) were skipped because their identity could not be confirmed.
+EXIT_INCOMPLETE_SCAN = 2
+
 
 @click.group()
 def cli() -> None:
@@ -154,6 +158,13 @@ def discover(
         f"\n[green]Snapshot saved:[/green] {out_path}/snapshot_{snapshot.snapshot_id}.json"
     )
     console.print(f"[green]Report saved:[/green]   {out_path}/report_{snapshot.snapshot_id}.md")
+
+    if snapshot.unverified_scopes:
+        console.print(
+            f"\n[red]Incomplete scan:[/red] {len(snapshot.unverified_scopes)} scope(s) skipped "
+            f"because their identity could not be confirmed: {', '.join(snapshot.unverified_scopes)}"
+        )
+        raise SystemExit(EXIT_INCOMPLETE_SCAN)
 
 
 def _print_aws_plan(config: ScanConfig) -> None:
