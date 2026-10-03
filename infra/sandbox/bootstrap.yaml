@@ -1,0 +1,337 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Sherpa sandbox bootstrap. Deploy once as a service-managed StackSet to the sherpa-sandbox OU
+  (us-east-1 only). In the CI account it creates the GitHub OIDC trust, the CI role and the
+  Terraform state bucket; in each target account it creates SherpaReadOnly (what Sherpa scans
+  with) and SherpaRefEstateDeploy (what creates and destroys the reference estate).
+  No IAM users or access keys anywhere. See infra/sandbox/README.md.
+
+Parameters:
+  CiAccountId:
+    Type: String
+    AllowedPattern: "^\\d{12}$"
+    Description: The sherpa-ci account. GitHub Actions signs in here.
+  TargetAccountIds:
+    Type: CommaDelimitedList
+    Description: The reference-estate accounts (sherpa-ref-*), comma-separated.
+  GitHubRepository:
+    Type: String
+    Default: pankajads/sherpa
+  GitHubEnvironment:
+    Type: String
+    Default: sandbox
+    Description: Only workflow jobs that use this GitHub environment can assume the CI role.
+  ExternalId:
+    Type: String
+    Default: sherpa-ref-sandbox
+    Description: >-
+      ExternalId required to assume SherpaReadOnly. Not a secret here; it exists so the
+      scanner's ExternalId path is exercised exactly as in a real cross-company scan.
+
+Conditions:
+  IsCi: !Equals [!Ref "AWS::AccountId", !Ref CiAccountId]
+  IsTarget: !Not [!Condition IsCi]
+
+Resources:
+  # ------------------------------------------------------------------ CI account
+
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: IsCi
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+      Tags:
+        - {Key: "sherpa-ref:managed-by", Value: bootstrap}
+
+  CiRole:
+    Type: AWS::IAM::Role
+    Condition: IsCi
+    Properties:
+      RoleName: SherpaRefCi
+      Path: /sherpa-ref/
+      Description: Assumed by GitHub Actions (OIDC). Can only hop into the target accounts' roles and use the state bucket.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Federated: !Ref GitHubOidcProvider}
+            Action: [sts:AssumeRoleWithWebIdentity, sts:TagSession]
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepository}:environment:${GitHubEnvironment}
+      Policies:
+        - PolicyName: assume-target-roles
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [sts:AssumeRole, sts:TagSession]
+                Resource:
+                  - arn:aws:iam::*:role/SherpaReadOnly
+                  - arn:aws:iam::*:role/sherpa-ref/SherpaRefEstateDeploy
+                Condition:
+                  StringEquals:
+                    aws:ResourceAccount: !Ref TargetAccountIds
+        - PolicyName: terraform-state
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt StateBucket.Arn
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
+                Resource: !Sub "${StateBucket.Arn}/*"
+      Tags:
+        - {Key: "sherpa-ref:managed-by", Value: bootstrap}
+
+  StateBucket:
+    Type: AWS::S3::Bucket
+    Condition: IsCi
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub sherpa-ref-tfstate-${AWS::AccountId}
+      VersioningConfiguration: {Status: Enabled}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ObjectOwnership: BucketOwnerEnforced}]
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-old-state-versions
+            Status: Enabled
+            NoncurrentVersionExpiration: {NoncurrentDays: 30}
+      Tags:
+        - {Key: "sherpa-ref:managed-by", Value: bootstrap}
+
+  StateBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: IsCi
+    Properties:
+      Bucket: !Ref StateBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TlsOnly
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource: [!GetAtt StateBucket.Arn, !Sub "${StateBucket.Arn}/*"]
+            Condition: {Bool: {aws:SecureTransport: "false"}}
+
+  # ------------------------------------------------------------------ target accounts
+
+  ReadOnlyRole:
+    Type: AWS::IAM::Role
+    Condition: IsTarget
+    Properties:
+      RoleName: SherpaReadOnly
+      Description: What Sherpa scans with. Exactly the read calls the AWS collector makes.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {AWS: !Sub "arn:aws:iam::${CiAccountId}:root"}
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: {sts:ExternalId: !Ref ExternalId}
+              ArnEquals: {aws:PrincipalArn: !Sub "arn:aws:iam::${CiAccountId}:role/sherpa-ref/SherpaRefCi"}
+      Policies:
+        - PolicyName: sherpa-discovery-read
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Keep in sync with sherpa/scanners/cloud/aws/collector.py. A missing action shows
+              # up as an access_denied coverage gap, which the smoke test fails on.
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DescribeVpcs
+                  - lambda:ListFunctions
+                  - lambda:ListEventSourceMappings
+                  - s3:ListAllMyBuckets
+                  - s3:GetBucketLocation
+                  - rds:DescribeDBInstances
+                  - dynamodb:ListTables
+                  - dynamodb:DescribeTable
+                  - sqs:ListQueues
+                  - sns:ListTopics
+                  - ecs:ListClusters
+                  - ecs:DescribeClusters
+                  - iam:ListRoles
+                Resource: "*"
+      Tags:
+        - {Key: "sherpa-ref:managed-by", Value: bootstrap}
+
+  WorkloadBoundary:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: IsTarget
+    Properties:
+      ManagedPolicyName: SherpaRefWorkloadBoundary
+      Path: /sherpa-ref/
+      Description: Permissions boundary every role the reference estate creates must carry.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:*
+              - sqs:*
+              - sns:*
+              - dynamodb:*
+              - s3:*
+              - lambda:InvokeFunction
+              - ecr:GetAuthorizationToken
+              - ecr:BatchGetImage
+              - ecr:GetDownloadUrlForLayer
+              - ecr:BatchCheckLayerAvailability
+              - ec2:CreateNetworkInterface
+              - ec2:DeleteNetworkInterface
+              - ec2:DescribeNetworkInterfaces
+              - ec2:AssignPrivateIpAddresses
+              - ec2:UnassignPrivateIpAddresses
+              - cloudwatch:PutMetricData
+              - rds-db:connect
+            Resource: "*"
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Condition: IsTarget
+    Properties:
+      RoleName: SherpaRefEstateDeploy
+      Path: /sherpa-ref/
+      Description: >-
+        Creates and destroys the reference estate (Terraform). Service-scoped, not
+        resource-scoped; the account holds nothing else, and the OU's SCP limits regions,
+        instance sizes and services. IAM writes only under /sherpa-ref/workload/ with the boundary.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {AWS: !Sub "arn:aws:iam::${CiAccountId}:root"}
+            Action: [sts:AssumeRole, sts:TagSession]
+            Condition:
+              ArnEquals: {aws:PrincipalArn: !Sub "arn:aws:iam::${CiAccountId}:role/sherpa-ref/SherpaRefCi"}
+      Policies:
+        - PolicyName: estate-services
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:*
+                  - lambda:*
+                  - s3:*
+                  - rds:*
+                  - dynamodb:*
+                  - sqs:*
+                  - sns:*
+                  - ecs:*
+                  - ecr:*
+                  - logs:*
+                  - events:*
+                  - elasticloadbalancing:*
+                  - application-autoscaling:*
+                  - cloudwatch:*
+                  - tag:GetResources
+                Resource: "*"
+              - Sid: PublicAmiLookups
+                Effect: Allow
+                Action: [ssm:GetParameter, ssm:GetParameters]
+                Resource: arn:aws:ssm:*::parameter/aws/service/*
+        - PolicyName: estate-iam
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [iam:Get*, iam:List*]
+                Resource: "*"
+              - Sid: CreateWorkloadRolesOnlyWithBoundary
+                Effect: Allow
+                Action: [iam:CreateRole, iam:PutRolePermissionsBoundary]
+                Resource: !Sub arn:aws:iam::${AWS::AccountId}:role/sherpa-ref/workload/*
+                Condition:
+                  StringEquals:
+                    iam:PermissionsBoundary: !Ref WorkloadBoundary
+              - Sid: ManageWorkloadRoles
+                Effect: Allow
+                Action:
+                  - iam:DeleteRole
+                  - iam:UpdateRole
+                  - iam:UpdateRoleDescription
+                  - iam:UpdateAssumeRolePolicy
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:PassRole
+                Resource: !Sub arn:aws:iam::${AWS::AccountId}:role/sherpa-ref/workload/*
+              - Sid: ManageWorkloadInstanceProfiles
+                Effect: Allow
+                Action:
+                  - iam:CreateInstanceProfile
+                  - iam:DeleteInstanceProfile
+                  - iam:AddRoleToInstanceProfile
+                  - iam:RemoveRoleFromInstanceProfile
+                  - iam:TagInstanceProfile
+                  - iam:UntagInstanceProfile
+                Resource: !Sub arn:aws:iam::${AWS::AccountId}:instance-profile/sherpa-ref/workload/*
+              - Sid: ManageWorkloadPolicies
+                Effect: Allow
+                Action:
+                  - iam:CreatePolicy
+                  - iam:DeletePolicy
+                  - iam:CreatePolicyVersion
+                  - iam:DeletePolicyVersion
+                  - iam:TagPolicy
+                  - iam:UntagPolicy
+                Resource: !Sub arn:aws:iam::${AWS::AccountId}:policy/sherpa-ref/workload/*
+              - Sid: ServiceLinkedRoles
+                Effect: Allow
+                Action: iam:CreateServiceLinkedRole
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    iam:AWSServiceName:
+                      - ecs.amazonaws.com
+                      - rds.amazonaws.com
+                      - elasticloadbalancing.amazonaws.com
+                      - application-autoscaling.amazonaws.com
+              - Sid: BoundaryCannotBeRemoved
+                Effect: Deny
+                Action: iam:DeleteRolePermissionsBoundary
+                Resource: "*"
+      Tags:
+        - {Key: "sherpa-ref:managed-by", Value: bootstrap}
+
+Outputs:
+  CiRoleArn:
+    Condition: IsCi
+    Value: !GetAtt CiRole.Arn
+  StateBucketName:
+    Condition: IsCi
+    Value: !Ref StateBucket
+  ReadOnlyRoleArn:
+    Condition: IsTarget
+    Value: !GetAtt ReadOnlyRole.Arn
+  DeployRoleArn:
+    Condition: IsTarget
+    Value: !GetAtt DeployRole.Arn

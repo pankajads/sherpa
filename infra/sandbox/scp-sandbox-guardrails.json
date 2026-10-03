@@ -1,0 +1,94 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "OnlyTwoRegions",
+      "Effect": "Deny",
+      "NotAction": [
+        "iam:*", "sts:*", "organizations:*", "account:*", "budgets:*", "ce:*",
+        "health:*", "support:*", "s3:ListAllMyBuckets", "s3:GetBucketLocation", "tag:*"
+      ],
+      "Resource": "*",
+      "Condition": {"StringNotEquals": {"aws:RequestedRegion": ["us-east-1", "eu-west-1"]}}
+    },
+    {
+      "Sid": "OnlyServicesTheEstateUses",
+      "Effect": "Deny",
+      "NotAction": [
+        "ec2:*", "lambda:*", "s3:*", "rds:*", "dynamodb:*", "sqs:*", "sns:*", "ecs:*", "ecr:*",
+        "logs:*", "events:*", "elasticloadbalancing:*", "application-autoscaling:*",
+        "cloudwatch:*", "ssm:*", "iam:*", "sts:*", "cloudformation:*", "cloudtrail:*", "tag:*",
+        "organizations:*", "account:*", "budgets:*", "ce:*", "health:*", "support:*",
+        "servicequotas:*", "access-analyzer:*", "resource-groups:*", "kms:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SmallEc2Only",
+      "Effect": "Deny",
+      "Action": "ec2:RunInstances",
+      "Resource": "arn:aws:ec2:*:*:instance/*",
+      "Condition": {
+        "StringNotEquals": {"ec2:InstanceType": ["t3.nano", "t3.micro", "t4g.nano", "t4g.micro"]}
+      }
+    },
+    {
+      "Sid": "SmallRdsOnly",
+      "Effect": "Deny",
+      "Action": ["rds:CreateDBInstance", "rds:CreateDBInstanceReadReplica"],
+      "Resource": "*",
+      "Condition": {"StringNotEquals": {"rds:DatabaseClass": ["db.t3.micro", "db.t4g.micro"]}}
+    },
+    {
+      "Sid": "NoCostlyOrLongLivedThings",
+      "Effect": "Deny",
+      "Action": [
+        "ec2:CreateNatGateway", "ec2:AllocateHosts", "ec2:PurchaseReservedInstancesOffering",
+        "ec2:PurchaseHostReservation", "ec2:PurchaseScheduledInstances",
+        "rds:CreateDBCluster", "rds:PurchaseReservedDBInstancesOffering",
+        "dynamodb:PurchaseReservedCapacityOfferings"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NoLongLivedCredentials",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateUser", "iam:CreateAccessKey", "iam:CreateLoginProfile",
+        "iam:UpdateLoginProfile", "iam:CreateServiceSpecificCredential"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ProtectOrgAndAudit",
+      "Effect": "Deny",
+      "Action": [
+        "organizations:LeaveOrganization", "cloudtrail:StopLogging", "cloudtrail:DeleteTrail",
+        "cloudtrail:UpdateTrail", "account:CloseAccount"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ProtectBootstrapRoles",
+      "Effect": "Deny",
+      "Action": [
+        "iam:Attach*", "iam:Detach*", "iam:Put*", "iam:Delete*", "iam:Update*", "iam:Create*",
+        "iam:Tag*", "iam:Untag*", "iam:Add*", "iam:Remove*", "iam:Set*"
+      ],
+      "Resource": [
+        "arn:aws:iam::*:role/sherpa-ref/SherpaRef*",
+        "arn:aws:iam::*:role/SherpaReadOnly",
+        "arn:aws:iam::*:policy/sherpa-ref/SherpaRef*",
+        "arn:aws:iam::*:oidc-provider/token.actions.githubusercontent.com"
+      ],
+      "Condition": {
+        "ArnNotLike": {
+          "aws:PrincipalArn": [
+            "arn:aws:iam::*:role/stacksets-exec-*",
+            "arn:aws:iam::*:role/OrganizationAccountAccessRole"
+          ]
+        }
+      }
+    }
+  ]
+}
