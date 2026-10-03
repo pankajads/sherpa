@@ -6,7 +6,8 @@ import yaml
 from github import Github, GithubException
 
 from sherpa.core.interfaces import ScannerPlane, ScannerPlugin, ScanResult, ValidationResult
-from sherpa.core.models import CoverageGap, Pipeline, PipelineStage, ScanConfig
+from sherpa.core.models import CoverageGap, ErrorClass, Pipeline, PipelineStage, ScanConfig
+from sherpa.scanners._github_errors import classify
 
 _AWS_DEPLOY_ACTIONS = {
     "aws-actions/configure-aws-credentials",
@@ -44,13 +45,14 @@ def _extract_accounts_regions(workflow_text: str) -> tuple[list[str], list[str]]
     return accounts, regions
 
 
-def _parse_workflow(content: str, repo_id: str, filename: str) -> Pipeline | None:
+def _parse_workflow(content: str, repo_id: str, filename: str) -> Pipeline:
+    """Parse one workflow file. Raises ValueError when it isn't a workflow (caller records it)."""
     try:
         data = yaml.safe_load(content)
-    except Exception:
-        return None
+    except yaml.YAMLError as exc:
+        raise ValueError(f"invalid YAML: {exc}") from exc
     if not isinstance(data, dict):
-        return None
+        raise ValueError("not a workflow definition (top level is not a mapping)")
 
     pipeline_id = f"{repo_id}/.github/workflows/{filename}"
     # PyYAML 1.1 parses bare `on` as boolean True; check both key forms.
@@ -133,6 +135,9 @@ class GithubActionsScanner(ScannerPlugin):
                         description=f"GitHub org {config.github_org} could not be read: "
                         "no workflows were scanned",
                         severity="error",
+                        scanner=self.scanner_type,
+                        scope=f"github.com/{config.github_org}",
+                        error_class=classify(exc),
                     )
                 ],
             )
@@ -148,21 +153,41 @@ class GithubActionsScanner(ScannerPlugin):
                         continue
                     try:
                         content = wf_file.decoded_content.decode("utf-8", errors="replace")
-                        pipeline = _parse_workflow(content, repo_id, wf_file.name)
-                        if pipeline:
-                            pipelines.append(pipeline)
-                    except Exception as exc:
+                        pipelines.append(_parse_workflow(content, repo_id, wf_file.name))
+                    except Exception as exc:  # noqa: BLE001 - reported as a coverage gap
                         errors.append(f"{repo_id}/{wf_file.name}: {exc}")
-            except GithubException:
-                pass  # no workflows dir — expected for many repos
-
-        if errors:
-            coverage_gaps.append(
-                CoverageGap(
-                    description=f"{len(errors)} workflow file(s) could not be read",
-                    severity="warning",
+                        error_class = (
+                            ErrorClass.INVALID_CONTENT
+                            if isinstance(exc, ValueError)
+                            else classify(exc)
+                        )
+                        coverage_gaps.append(
+                            CoverageGap(
+                                description=(
+                                    f"Workflow {wf_file.name} in {repo_id} could not be read: "
+                                    "its deployment targets are missing"
+                                ),
+                                severity="warning",
+                                scanner=self.scanner_type,
+                                scope=repo_id,
+                                error_class=error_class,
+                            )
+                        )
+            except GithubException as exc:
+                if exc.status == 404:
+                    continue  # no workflows directory: expected for many repos, not a gap
+                errors.append(f"{repo_id}/.github/workflows: {exc}")
+                coverage_gaps.append(
+                    CoverageGap(
+                        description=(
+                            f"Workflows of {repo_id} could not be listed: its pipelines are missing"
+                        ),
+                        severity="warning",
+                        scanner=self.scanner_type,
+                        scope=repo_id,
+                        error_class=classify(exc),
+                    )
                 )
-            )
 
         return ScanResult(
             scanner_type=self.scanner_type,

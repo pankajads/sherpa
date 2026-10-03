@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, SecretStr, field_validator, model_validat
 from .enums import (
     DependencyPlane,
     DependencyType,
+    ErrorClass,
     IaCType,
     MigrationPath,
     ResourceType,
@@ -172,10 +173,15 @@ class Workload(BaseModel):
 
 
 class CoverageGap(BaseModel):
+    """Something the inventory may be missing, and why. Every caught error becomes one."""
+
     description: str
     affected_regions: list[str] = Field(default_factory=list)
     affected_services: list[str] = Field(default_factory=list)
     severity: str = "warning"  # info, warning, error
+    scanner: str = ""  # scanner_type that reported it, e.g. "aws-cloud"
+    scope: str = ""  # what was being read, e.g. "aws-account:111111111111", "github.com/acme/api"
+    error_class: ErrorClass = ErrorClass.NONE
 
     model_config = {"frozen": True}
 

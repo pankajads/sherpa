@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 from collections import deque
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import sqlalchemy as sa
 
 from sherpa.core.models import (
+    CoverageGap,
     InventorySnapshot,
     PackageDependency,
     Pipeline,
@@ -15,23 +18,59 @@ from sherpa.core.models import (
     Resource,
     ResourceDependency,
     ScanConfig,
+    ScanIdentity,
     Workload,
 )
 from sherpa.core.models.enums import DependencyPlane, DependencyType, IaCType, MigrationPath
 
-from .schema import dependencies, metadata, pipelines, repositories, resources, scan_runs, workloads
+from .migrations import ensure_schema
+from .schema import dependencies, pipelines, repositories, resources, scan_runs, workloads
+
+
+def _make_transactions_real(engine: sa.Engine) -> None:
+    """Make SQLite transactions cover DDL too, so a failed migration leaves no trace.
+
+    Python's sqlite3 driver only opens a transaction before DML, so ALTER TABLE would
+    otherwise auto-commit. This is SQLAlchemy's documented recipe for pysqlite.
+    """
+
+    @sa.event.listens_for(engine, "connect")
+    def _no_driver_transactions(dbapi_connection: Any, _record: Any) -> None:
+        dbapi_connection.isolation_level = None
+
+    @sa.event.listens_for(engine, "begin")
+    def _begin(conn: sa.Connection) -> None:
+        conn.exec_driver_sql("BEGIN")
+
+
+def _utc(value: datetime | None) -> datetime | None:
+    """SQLite returns naive datetimes; Sherpa stores UTC, so restore the zone on read."""
+    if value is None:
+        return None
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def _dump(items: list[Any]) -> str:
+    return json.dumps([i.model_dump(mode="json") for i in items], sort_keys=True)
 
 
 class InventoryStore:
     """SQLite-backed store for inventory snapshots.
 
-    Snapshots are append-only; a closed snapshot is never mutated.
+    Snapshots are append-only; a closed snapshot is never mutated. Saving and reloading a
+    snapshot is lossless. Opening a database written by an older Sherpa migrates it (after a
+    backup copy); one written by a newer Sherpa is refused (see migrations.py).
     """
 
     def __init__(self, db_path: str | Path = ":memory:") -> None:
-        url = f"sqlite:///{db_path}" if str(db_path) != ":memory:" else "sqlite://"
+        in_memory = str(db_path) == ":memory:"
+        db_file = None if in_memory else Path(db_path)
+        if db_file is not None:
+            db_file.parent.mkdir(parents=True, exist_ok=True)
+        url = "sqlite://" if in_memory else f"sqlite:///{db_file}"
         self._engine = sa.create_engine(url, future=True)
-        metadata.create_all(self._engine)
+        _make_transactions_real(self._engine)
+        self.migrated_from = ensure_schema(self._engine, db_file)
 
     # ------------------------------------------------------------------
     # Write
@@ -45,6 +84,9 @@ class InventoryStore:
                     started_at=snapshot.started_at,
                     completed_at=snapshot.completed_at,
                     config_json=snapshot.config.model_dump_json(),
+                    coverage_gaps_json=_dump(snapshot.coverage_gaps),
+                    errors_json=json.dumps(snapshot.errors),
+                    scan_identities_json=_dump(snapshot.scan_identities),
                 )
             )
             for r in snapshot.resources:
@@ -64,6 +106,7 @@ class InventoryStore:
                     conn.execute(
                         dependencies.insert().values(
                             snapshot_id=snapshot.snapshot_id,
+                            owner_id=r.id,
                             source_id=dep.source_id,
                             target_id=dep.target_id,
                             dependency_type=str(dep.dependency_type),
@@ -137,8 +180,8 @@ class InventoryStore:
                 dependencies.select().where(dependencies.c.snapshot_id == snapshot_id)
             ).fetchall()
 
-            # Group dependencies by source
-            deps_by_source: dict[str, list[ResourceDependency]] = {}
+            # Group dependencies by the resource they are attached to
+            deps_by_owner: dict[str, list[ResourceDependency]] = {}
             for d in dep_rows:
                 dep = ResourceDependency(
                     source_id=d.source_id,
@@ -147,7 +190,7 @@ class InventoryStore:
                     plane=DependencyPlane(d.plane),
                     metadata=json.loads(d.metadata_json),
                 )
-                deps_by_source.setdefault(d.source_id, []).append(dep)
+                deps_by_owner.setdefault(d.owner_id, []).append(dep)
 
             loaded_resources = [
                 Resource(
@@ -158,7 +201,7 @@ class InventoryStore:
                     name=r.name,
                     tags=json.loads(r.tags_json),
                     metadata=json.loads(r.metadata_json),
-                    dependencies=sorted(deps_by_source.get(r.id, []), key=lambda d: d.target_id),
+                    dependencies=deps_by_owner.get(r.id, []),
                 )
                 for r in sorted(res_rows, key=lambda r: r.id)
             ]
@@ -217,14 +260,63 @@ class InventoryStore:
 
             return InventorySnapshot(
                 snapshot_id=row.snapshot_id,
-                started_at=row.started_at,
-                completed_at=row.completed_at,
+                started_at=_utc(row.started_at),
+                completed_at=_utc(row.completed_at),
                 config=config,
                 resources=loaded_resources,
                 repositories=loaded_repos,
                 pipelines=loaded_pipelines,
                 workloads=loaded_workloads,
+                coverage_gaps=[
+                    CoverageGap.model_validate(g) for g in json.loads(row.coverage_gaps_json)
+                ],
+                errors=json.loads(row.errors_json),
+                scan_identities=[
+                    ScanIdentity.model_validate(i) for i in json.loads(row.scan_identities_json)
+                ],
             )
+
+    def snapshot_summaries(self) -> list[dict[str, Any]]:
+        """One row per snapshot, oldest first: identity, timing, sources and counts."""
+        counts = {}
+        with self._engine.connect() as conn:
+            for name, table in (
+                ("resources", resources),
+                ("repositories", repositories),
+                ("pipelines", pipelines),
+                ("workloads", workloads),
+            ):
+                counts[name] = dict(
+                    conn.execute(
+                        sa.select(table.c.snapshot_id, sa.func.count()).group_by(
+                            table.c.snapshot_id
+                        )
+                    ).all()
+                )
+            runs = conn.execute(scan_runs.select().order_by(scan_runs.c.started_at)).fetchall()
+        summaries = []
+        for run in runs:
+            config = json.loads(run.config_json)
+            gaps = json.loads(run.coverage_gaps_json)
+            identities = json.loads(run.scan_identities_json)
+            summaries.append(
+                {
+                    "snapshot_id": run.snapshot_id,
+                    "started_at": _utc(run.started_at),
+                    "completed_at": _utc(run.completed_at),
+                    "aws_accounts": config.get("aws_accounts") or [],
+                    "github_org": config.get("github_org"),
+                    **{name: counts[name].get(run.snapshot_id, 0) for name in counts},
+                    "coverage_gaps": len(gaps),
+                    "errors": len(json.loads(run.errors_json)),
+                    "unverified_scopes": sum(1 for i in identities if not i.get("verified")),
+                }
+            )
+        return summaries
+
+    def resolve_snapshot_id(self, prefix: str) -> list[str]:
+        """Snapshot IDs starting with `prefix` (so users can type a short unique prefix)."""
+        return [sid for sid in self.list_snapshots() if sid.startswith(prefix)]
 
     def list_snapshots(self) -> list[str]:
         with self._engine.connect() as conn:

@@ -8,7 +8,14 @@ from typing import Any
 import aioboto3
 
 from sherpa.core.interfaces import ScannerPlane, ScannerPlugin, ScanResult, ValidationResult
-from sherpa.core.models import AwsTarget, CoverageGap, Resource, ScanConfig, ScanIdentity
+from sherpa.core.models import (
+    AwsTarget,
+    CoverageGap,
+    ErrorClass,
+    Resource,
+    ScanConfig,
+    ScanIdentity,
+)
 
 from .collector import (
     collect_dynamodb,
@@ -23,6 +30,7 @@ from .collector import (
     collect_sqs,
     collect_vpcs,
 )
+from .errors import classify
 
 _CATEGORY_COLLECTORS: dict[str, list[tuple[str, Any]]] = {
     "compute": [
@@ -142,11 +150,12 @@ class AwsCloudScanner(ScannerPlugin):
         # with sts:GetCallerIdentity that they really belong to that account. Only verified
         # accounts are scanned; a skipped account is reported once, never scanned under
         # another account's label.
-        identities = await asyncio.gather(
+        verified = await asyncio.gather(
             *(self._verify_account(session, accounts[t.account_id], t) for t in targets)
         )
+        identities = [identity for identity, _ in verified]
         reachable: list[AwsTarget] = []
-        for target, identity in zip(targets, identities, strict=True):
+        for target, (identity, error_class) in zip(targets, verified, strict=True):
             if identity.verified:
                 reachable.append(target)
                 continue
@@ -156,10 +165,14 @@ class AwsCloudScanner(ScannerPlugin):
                     description=f"Account {target.account_id} was not scanned: {identity.detail}",
                     affected_regions=target.regions,
                     severity="error",
+                    scanner=self.scanner_type,
+                    scope=identity.scope,
+                    error_class=error_class,
                 )
             )
 
         jobs: list[tuple[str, str, str]] = []
+        issues: list[CoverageGap] = []  # partial failures reported from inside collectors
         tasks = []
         for target in reachable:
             creds = accounts[target.account_id]
@@ -174,19 +187,42 @@ class AwsCloudScanner(ScannerPlugin):
                         jobs.append((target.account_id, region, service))
                         tasks.append(
                             self._run_collector(
-                                session, creds, collector_fn, service, region, target.account_id
+                                session,
+                                creds,
+                                collector_fn,
+                                service,
+                                region,
+                                target.account_id,
+                                issues,
                             )
                         )
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        failed_collectors = 0
+        # One gap per (account, service, error class), listing every region it hit.
+        failed: dict[tuple[str, str, ErrorClass], list[str]] = {}
         for (account_id, region, service), result in zip(jobs, results, strict=True):
             if isinstance(result, BaseException):
-                failed_collectors += 1
                 errors.append(f"{account_id}/{region}/{service}: {result}")
+                failed.setdefault((account_id, service, classify(result)), []).append(region)
             elif isinstance(result, list):
                 all_resources.extend(result)
+        for (account_id, service, error_class), regions in sorted(failed.items()):
+            coverage_gaps.append(
+                CoverageGap(
+                    description=(
+                        f"{service} could not be read in account {account_id} "
+                        f"({error_class.value}): its resources are missing from those regions"
+                    ),
+                    affected_regions=sorted(set(regions)),  # several collectors per service
+                    affected_services=[service],
+                    severity="warning",
+                    scanner=self.scanner_type,
+                    scope=f"aws-account:{account_id}",
+                    error_class=error_class,
+                )
+            )
+        coverage_gaps.extend(issues)
 
         all_resources, owner_gaps = _attribute_to_owner(all_resources)
         coverage_gaps.extend(owner_gaps)
@@ -199,12 +235,8 @@ class AwsCloudScanner(ScannerPlugin):
                 seen.add(r.id)
                 deduped.append(r)
 
-        if failed_collectors:
-            coverage_gaps.append(
-                CoverageGap(
-                    description=f"{failed_collectors} collector(s) failed", severity="warning"
-                )
-            )
+        # Identical gaps (e.g. the same S3 issue seen from every region) are reported once.
+        coverage_gaps = list({g.model_dump_json(): g for g in coverage_gaps}.values())
 
         return ScanResult(
             scanner_type=self.scanner_type,
@@ -216,7 +248,7 @@ class AwsCloudScanner(ScannerPlugin):
 
     async def _verify_account(
         self, session: Any, creds: _AccountCredentials, target: AwsTarget
-    ) -> ScanIdentity:
+    ) -> tuple[ScanIdentity, ErrorClass]:
         """Confirm the credentials for `target` belong to it. Never raises.
 
         GetCallerIdentity needs no IAM permission and cannot be denied by policy, so this
@@ -226,20 +258,20 @@ class AwsCloudScanner(ScannerPlugin):
         method = "assumed-role" if target.role_arn else "current-credentials"
         try:
             kwargs = await creds.client_kwargs()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - becomes the account's error gap
             return ScanIdentity(
                 scope=scope,
                 method=method,
                 detail=f"cannot assume {target.role_arn}: {exc}",
-            )
+            ), classify(exc)
         region = target.regions[0] if target.regions else "us-east-1"
         try:
             async with session.client("sts", region_name=region, **kwargs) as sts:
                 who = await sts.get_caller_identity()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - becomes the account's error gap
             return ScanIdentity(
                 scope=scope, method=method, detail=f"cannot confirm credentials identity: {exc}"
-            )
+            ), classify(exc)
         actual, principal = str(who.get("Account", "")), str(who.get("Arn", ""))
         if actual != target.account_id:
             hint = (
@@ -256,8 +288,10 @@ class AwsCloudScanner(ScannerPlugin):
                     f"{actual or 'an unknown account'} (signed in as {principal or 'unknown'}); "
                     f"{hint}"
                 ),
-            )
-        return ScanIdentity(scope=scope, principal=principal, method=method, verified=True)
+            ), ErrorClass.OTHER
+        return ScanIdentity(
+            scope=scope, principal=principal, method=method, verified=True
+        ), ErrorClass.NONE
 
     async def _run_collector(
         self,
@@ -267,10 +301,11 @@ class AwsCloudScanner(ScannerPlugin):
         service: str,
         region: str,
         account_id: str,
+        issues: list[CoverageGap] | None = None,
     ) -> list[Resource]:
         kwargs: dict[str, Any] = {"region_name": region, **await creds.client_kwargs()}
         async with session.client(service, **kwargs) as client:
-            return await collector_fn(client, region, account_id)
+            return await collector_fn(client, region, account_id, issues)
 
 
 def _attribute_to_owner(resources: list[Resource]) -> tuple[list[Resource], list[CoverageGap]]:
@@ -294,6 +329,8 @@ def _attribute_to_owner(resources: list[Resource]) -> tuple[list[Resource], list
                 f"{owner}: check the role mapping for {asked}, or confirm they are shared"
             ),
             severity="warning",
+            scanner="aws-cloud",
+            scope=f"aws-account:{asked}",
         )
         for (asked, owner), count in sorted(mismatches.items())
     ]

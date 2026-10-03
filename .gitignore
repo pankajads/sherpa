@@ -11,3 +11,9 @@ htmlcov/
 *.sqlite
 inventory/
 .env
+
+# Sherpa local data (inventory database, backups)
+.sherpa/
+
+# ...but keep the schema-migration test fixtures
+!tests/fixtures/db/*.db

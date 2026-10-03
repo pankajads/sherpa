@@ -5,12 +5,39 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from sherpa.core.models import Resource, ResourceDependency
+from sherpa.core.models import CoverageGap, Resource, ResourceDependency
 from sherpa.core.models.enums import DependencyPlane, DependencyType, ResourceType
+
+from .errors import classify
 
 
 def _arn(service: str, resource_type: str, region: str, account: str, resource_id: str) -> str:
     return f"arn:aws:{service}:{region}:{account}:{resource_type}/{resource_id}"
+
+
+def _report(
+    issues: list[CoverageGap] | None,
+    *,
+    description: str,
+    account_id: str,
+    service: str,
+    failures: list[Exception],
+    region: str | None = None,
+) -> None:
+    """Record partial failures inside a collector as one coverage gap (never silently)."""
+    if not failures or issues is None:
+        return
+    issues.append(
+        CoverageGap(
+            description=description,
+            affected_regions=[region] if region else [],
+            affected_services=[service],
+            severity="warning",
+            scanner="aws-cloud",
+            scope=f"aws-account:{account_id}",
+            error_class=classify(failures[0]),
+        )
+    )
 
 
 def _policy_text(doc: Any) -> str:
@@ -18,7 +45,9 @@ def _policy_text(doc: Any) -> str:
     return doc if isinstance(doc, str) else json.dumps(doc, sort_keys=True)
 
 
-async def collect_ec2(client: Any, region: str, account_id: str) -> list[Resource]:
+async def collect_ec2(
+    client: Any, region: str, account_id: str, issues: list[CoverageGap] | None = None
+) -> list[Resource]:
     resources: list[Resource] = []
     paginator = client.get_paginator("describe_instances")
     async for page in paginator.paginate():
@@ -54,7 +83,9 @@ async def collect_ec2(client: Any, region: str, account_id: str) -> list[Resourc
     return resources
 
 
-async def collect_security_groups(client: Any, region: str, account_id: str) -> list[Resource]:
+async def collect_security_groups(
+    client: Any, region: str, account_id: str, issues: list[CoverageGap] | None = None
+) -> list[Resource]:
     resources: list[Resource] = []
     paginator = client.get_paginator("describe_security_groups")
     async for page in paginator.paginate():
@@ -77,7 +108,9 @@ async def collect_security_groups(client: Any, region: str, account_id: str) -> 
     return resources
 
 
-async def collect_vpcs(client: Any, region: str, account_id: str) -> list[Resource]:
+async def collect_vpcs(
+    client: Any, region: str, account_id: str, issues: list[CoverageGap] | None = None
+) -> list[Resource]:
     resources: list[Resource] = []
     paginator = client.get_paginator("describe_vpcs")
     async for page in paginator.paginate():
@@ -97,8 +130,11 @@ async def collect_vpcs(client: Any, region: str, account_id: str) -> list[Resour
     return resources
 
 
-async def collect_lambda(client: Any, region: str, account_id: str) -> list[Resource]:
+async def collect_lambda(
+    client: Any, region: str, account_id: str, issues: list[CoverageGap] | None = None
+) -> list[Resource]:
     resources: list[Resource] = []
+    esm_failures: list[Exception] = []
     paginator = client.get_paginator("list_functions")
     async for page in paginator.paginate():
         for fn in page["Functions"]:
@@ -118,8 +154,8 @@ async def collect_lambda(client: Any, region: str, account_id: str) -> list[Reso
                                 plane=DependencyPlane.CLOUD,
                             )
                         )
-            except Exception:
-                pass
+            except Exception as exc:  # noqa: BLE001 - reported as a coverage gap below
+                esm_failures.append(exc)
             resources.append(
                 Resource(
                     id=fn_arn,
@@ -137,20 +173,36 @@ async def collect_lambda(client: Any, region: str, account_id: str) -> list[Reso
                     dependencies=esm_deps,
                 )
             )
+    _report(
+        issues,
+        description=(
+            f"Event source mappings could not be read for {len(esm_failures)} Lambda "
+            "function(s): their event-source dependencies are missing"
+        ),
+        account_id=account_id,
+        service="lambda",
+        failures=esm_failures,
+        region=region,
+    )
     return resources
 
 
-async def collect_s3(client: Any, region: str, account_id: str) -> list[Resource]:
+async def collect_s3(
+    client: Any, region: str, account_id: str, issues: list[CoverageGap] | None = None
+) -> list[Resource]:
     resources: list[Resource] = []
+    location_failures: list[Exception] = []
     resp = await client.list_buckets()
     for bucket in resp.get("Buckets", []):
         name = bucket["Name"]
         try:
             loc = await client.get_bucket_location(Bucket=name)
             bucket_region = loc.get("LocationConstraint") or "us-east-1"
-        except Exception:
-            bucket_region = region
-        if bucket_region != region:
+        except Exception as exc:  # noqa: BLE001 - reported as a coverage gap below
+            # Never guess: a guessed region would put the bucket in the wrong place.
+            location_failures.append(exc)
+            bucket_region = "unknown"
+        if bucket_region not in (region, "unknown"):
             continue  # only emit buckets for their home region
         resources.append(
             Resource(
@@ -163,10 +215,23 @@ async def collect_s3(client: Any, region: str, account_id: str) -> list[Resource
                 metadata={"creation_date": str(bucket.get("CreationDate", ""))},
             )
         )
+    # Region-agnostic on purpose: identical across regional calls, so reported once.
+    _report(
+        issues,
+        description=(
+            f"The region of {len(location_failures)} S3 bucket(s) could not be read: they "
+            "are listed with region 'unknown'"
+        ),
+        account_id=account_id,
+        service="s3",
+        failures=location_failures,
+    )
     return resources
 
 
-async def collect_rds(client: Any, region: str, account_id: str) -> list[Resource]:
+async def collect_rds(
+    client: Any, region: str, account_id: str, issues: list[CoverageGap] | None = None
+) -> list[Resource]:
     resources: list[Resource] = []
     paginator = client.get_paginator("describe_db_instances")
     async for page in paginator.paginate():
@@ -192,7 +257,9 @@ async def collect_rds(client: Any, region: str, account_id: str) -> list[Resourc
     return resources
 
 
-async def collect_dynamodb(client: Any, region: str, account_id: str) -> list[Resource]:
+async def collect_dynamodb(
+    client: Any, region: str, account_id: str, issues: list[CoverageGap] | None = None
+) -> list[Resource]:
     resources: list[Resource] = []
     paginator = client.get_paginator("list_tables")
     async for page in paginator.paginate():
@@ -218,7 +285,9 @@ async def collect_dynamodb(client: Any, region: str, account_id: str) -> list[Re
     return resources
 
 
-async def collect_sqs(client: Any, region: str, account_id: str) -> list[Resource]:
+async def collect_sqs(
+    client: Any, region: str, account_id: str, issues: list[CoverageGap] | None = None
+) -> list[Resource]:
     resources: list[Resource] = []
     paginator = client.get_paginator("list_queues")
     async for page in paginator.paginate():
@@ -243,7 +312,9 @@ async def collect_sqs(client: Any, region: str, account_id: str) -> list[Resourc
     return resources
 
 
-async def collect_sns(client: Any, region: str, account_id: str) -> list[Resource]:
+async def collect_sns(
+    client: Any, region: str, account_id: str, issues: list[CoverageGap] | None = None
+) -> list[Resource]:
     resources: list[Resource] = []
     paginator = client.get_paginator("list_topics")
     async for page in paginator.paginate():
@@ -264,7 +335,9 @@ async def collect_sns(client: Any, region: str, account_id: str) -> list[Resourc
     return resources
 
 
-async def collect_ecs_clusters(client: Any, region: str, account_id: str) -> list[Resource]:
+async def collect_ecs_clusters(
+    client: Any, region: str, account_id: str, issues: list[CoverageGap] | None = None
+) -> list[Resource]:
     resources: list[Resource] = []
     paginator = client.get_paginator("list_clusters")
     async for page in paginator.paginate():
@@ -291,7 +364,9 @@ async def collect_ecs_clusters(client: Any, region: str, account_id: str) -> lis
     return resources
 
 
-async def collect_iam_roles(client: Any, region: str, account_id: str) -> list[Resource]:
+async def collect_iam_roles(
+    client: Any, region: str, account_id: str, issues: list[CoverageGap] | None = None
+) -> list[Resource]:
     resources: list[Resource] = []
     paginator = client.get_paginator("list_roles")
     async for page in paginator.paginate():

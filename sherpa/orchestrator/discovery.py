@@ -32,7 +32,7 @@ async def _safe_scan(scanner: ScannerPlugin, config: ScanConfig) -> ScanResult:
     """Run one scanner; a crash becomes a recorded error and gap, never a failed run."""
     try:
         return await scanner.scan(config)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - isolate plugin crashes; recorded as error + gap
         return ScanResult(
             scanner_type=scanner.scanner_type,
             errors=[f"{scanner.scanner_type}: scan failed: {type(exc).__name__}: {exc}"],
@@ -177,10 +177,18 @@ def _render_report(snapshot: InventorySnapshot) -> str:
 
     if snapshot.coverage_gaps:
         lines += ["## Coverage Gaps", ""]
-        for gap in snapshot.coverage_gaps:
-            severity_marker = {"error": "🔴", "warning": "🟡", "info": "🔵"}.get(gap.severity, "•")
-            lines.append(f"- {severity_marker} {gap.description}")
-        lines.append("")
+        for severity, title in (("error", "Errors"), ("warning", "Warnings"), ("info", "Info")):
+            gaps = [g for g in snapshot.coverage_gaps if g.severity == severity]
+            if not gaps:
+                continue
+            lines += [f"### {title} ({len(gaps)})", ""]
+            for gap in gaps:
+                tags = " ".join(f"`{t}`" for t in (gap.error_class.value, gap.scope) if t)
+                where = (
+                    f" — regions: {', '.join(gap.affected_regions)}" if gap.affected_regions else ""
+                )
+                lines.append(f"- {tags + ' ' if tags else ''}{gap.description}{where}")
+            lines.append("")
 
     if snapshot.scan_identities:
         lines += ["## Scanned as", ""]

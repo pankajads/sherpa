@@ -50,7 +50,13 @@ Every plugin must follow these rules. `tests/contract/test_scanner_contract.py` 
 - **Structure:** a unique kebab-case `scanner_type`, a valid `plane`, an integer `run_stage`, and an `applies_to` that returns a bool.
 - **Sorted output:** resources, repositories and pipelines sorted by `id`.
 - **No credentials in results**, ever. See [SECURITY.md](../SECURITY.md).
-- **Every error comes with at least one coverage gap**, so a failure is never silent.
+- **Every error comes with at least one coverage gap**, so a failure is never silent. Fill in the gap's structured fields:
+  - `scanner`: your `scanner_type`;
+  - `scope`: what you were reading, e.g. `github.com/acme/api`;
+  - `error_class`: `access_denied`, `throttled`, `not_found`, `unavailable`, `invalid_content` or `other`;
+  - for cloud scanners, `affected_services` and `affected_regions`.
+
+  "Expected absence", such as a repo with no workflows, is not a gap. Ruff enforces this (`BLE001`, `S110`, `S112`): a deliberate catch-all needs `# noqa: BLE001 - <why>` and must record the failure.
 - **Read-only,** with no secret values or data contents collected (see CLAUDE.md).
 
 Structural checks run for any plugin. To get the behavioural checks too, add a scenario for your `scanner_type` to `SCENARIOS` in the contract suite, ideally a success case and a failure case.

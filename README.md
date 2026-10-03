@@ -145,7 +145,13 @@ sherpa discover --aws-account 123456789012 --regions us-east-1 --github-org my-o
 
 # Several accounts, each with its own regions and role:
 sherpa discover --accounts-file examples/aws-accounts/multi-account.yaml --github-org my-org
+
+# Snapshots accumulate in ./.sherpa/sherpa.db:
+sherpa snapshots list
+sherpa snapshots show <id-prefix>
 ```
+
+Commands, data location, upgrades and exit codes: [docs/cli.md](docs/cli.md).
 
 ### Credentials
 

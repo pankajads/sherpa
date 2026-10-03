@@ -55,6 +55,18 @@ class IaCType(StrEnum):
     NONE = "none"
 
 
+class ErrorClass(StrEnum):
+    """Vendor-neutral classification of why something could not be read."""
+
+    NONE = ""  # not an error (e.g. an informational gap)
+    ACCESS_DENIED = "access_denied"
+    THROTTLED = "throttled"
+    NOT_FOUND = "not_found"
+    UNAVAILABLE = "unavailable"  # service-side or network failure
+    INVALID_CONTENT = "invalid_content"  # read fine, but couldn't be parsed
+    OTHER = "other"
+
+
 class MigrationPath(StrEnum):
     LIFT_AND_SHIFT = "lift-and-shift"
     REPLATFORM = "replatform"
