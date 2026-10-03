@@ -25,13 +25,18 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        # The dummy plugin is a separate test-only package that proves scanners can be added
+        # through entry points without core changes (tests/integration/test_plugins.py).
+        run: pip install -e ".[dev]" -e tests/fixtures/dummy_plugin
 
       - name: Lint (ruff)
         run: ruff check .
 
       - name: Format check (ruff)
         run: ruff format --check .
+
+      - name: Architecture (import-linter)
+        run: lint-imports
 
       - name: Run tests
         env:

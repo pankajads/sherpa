@@ -90,19 +90,19 @@ class _patch_scanners(ExitStack):
         super().__init__()
         self.enter_context(
             patch(
-                "sherpa.orchestrator.discovery.AwsCloudScanner.scan",
+                "sherpa.scanners.cloud.aws.scanner.AwsCloudScanner.scan",
                 new=AsyncMock(return_value=cloud_result or _empty_cloud()),
             )
         )
         self.enter_context(
             patch(
-                "sherpa.orchestrator.discovery.GithubCodeScanner.scan",
+                "sherpa.scanners.code.github.scanner.GithubCodeScanner.scan",
                 new=AsyncMock(return_value=code_result or _empty_code()),
             )
         )
         self.enter_context(
             patch(
-                "sherpa.orchestrator.discovery.GithubActionsScanner.scan",
+                "sherpa.scanners.pipeline.github_actions.scanner.GithubActionsScanner.scan",
                 new=AsyncMock(return_value=pipeline_result or _empty_pipe()),
             )
         )

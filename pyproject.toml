@@ -27,6 +27,7 @@ dev = [
     "pytest-cov>=5.0",
     "moto[all]>=5.0",
     "hypothesis>=6.100",
+    "import-linter>=2.0",
     "responses>=0.25",
     "ruff>=0.5",
 ]
@@ -34,7 +35,7 @@ dev = [
 [project.scripts]
 sherpa = "sherpa.cli.main:cli"
 
-[project.entry_points."sherpa.scanners"]
+[project.entry-points."sherpa.scanners"]
 "aws-cloud" = "sherpa.scanners.cloud.aws.scanner:AwsCloudScanner"
 "github-code" = "sherpa.scanners.code.github.scanner:GithubCodeScanner"
 "github-actions-pipeline" = "sherpa.scanners.pipeline.github_actions.scanner:GithubActionsScanner"
@@ -60,3 +61,20 @@ ignore = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["sherpa"]
+
+# Architecture rules, checked in CI with `lint-imports` (CLAUDE.md design principles).
+[tool.importlinter]
+root_packages = ["sherpa"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Core and orchestrator never import concrete scanners (plugins are discovered)"
+type = "forbidden"
+source_modules = ["sherpa.core", "sherpa.orchestrator"]
+forbidden_modules = ["sherpa.scanners"]
+
+[[tool.importlinter.contracts]]
+name = "Core and orchestrator stay vendor-neutral (no cloud or SCM SDKs)"
+type = "forbidden"
+source_modules = ["sherpa.core", "sherpa.orchestrator"]
+forbidden_modules = ["boto3", "botocore", "aioboto3", "aiobotocore", "github"]

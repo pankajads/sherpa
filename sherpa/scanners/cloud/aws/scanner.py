@@ -7,7 +7,7 @@ from typing import Any
 
 import aioboto3
 
-from sherpa.core.interfaces import ScannerPlugin, ScanResult, ValidationResult
+from sherpa.core.interfaces import ScannerPlane, ScannerPlugin, ScanResult, ValidationResult
 from sherpa.core.models import AwsTarget, CoverageGap, Resource, ScanConfig, ScanIdentity
 
 from .collector import (
@@ -112,6 +112,13 @@ class AwsCloudScanner(ScannerPlugin):
     @property
     def scanner_type(self) -> str:
         return "aws-cloud"
+
+    @property
+    def plane(self) -> ScannerPlane:
+        return ScannerPlane.CLOUD
+
+    def applies_to(self, config: ScanConfig) -> bool:
+        return bool(config.aws_accounts)
 
     async def validate_config(self, config: ScanConfig) -> ValidationResult:
         errors = []
