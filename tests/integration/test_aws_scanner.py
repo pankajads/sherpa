@@ -397,6 +397,8 @@ class TestCollectSQS:
         assert len(resources) == 1
         assert resources[0].name == "events-queue"
         assert resources[0].resource_type == ResourceType.SQS_QUEUE
+        # Real ARN format (no "queue/" segment), so references by ARN resolve to it.
+        assert resources[0].id == f"arn:aws:sqs:{REGION}:{ACCOUNT}:events-queue"
 
     async def test_empty_page_returns_empty_list(self):
         client = _client(_async_paginator([{}]))

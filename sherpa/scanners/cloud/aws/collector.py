@@ -293,11 +293,9 @@ async def collect_sqs(
     async for page in paginator.paginate():
         for url in page.get("QueueUrls", []):
             queue_name = url.rsplit("/", 1)[-1]
-            arn = (
-                _arn("sqs", "queue", region, account_id, queue_name)
-                if ":" not in queue_name
-                else queue_name
-            )
+            # Real SQS ARN format has no resource-type segment: arn:aws:sqs:<region>:<acct>:<name>.
+            # It must match what other APIs and IaC use (e.g. Lambda event source mappings).
+            arn = f"arn:aws:sqs:{region}:{account_id}:{queue_name}"
             resources.append(
                 Resource(
                     id=arn,

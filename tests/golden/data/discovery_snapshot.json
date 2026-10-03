@@ -560,14 +560,21 @@
       "account_id": "123456789012",
       "dependencies": [
         {
+          "dependency_type": "declares",
+          "metadata": {},
+          "plane": "cross",
+          "source_id": "github.com/acme/payments-service",
+          "target_id": "arn:aws:sqs:us-east-1:123456789012:payments-queue"
+        },
+        {
           "dependency_type": "deploys_to",
           "metadata": {},
           "plane": "cross",
           "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
-          "target_id": "arn:aws:sqs:us-east-1:123456789012:queue/payments-queue"
+          "target_id": "arn:aws:sqs:us-east-1:123456789012:payments-queue"
         }
       ],
-      "id": "arn:aws:sqs:us-east-1:123456789012:queue/payments-queue",
+      "id": "arn:aws:sqs:us-east-1:123456789012:payments-queue",
       "metadata": {
         "url": "https://sqs.us-east-1.amazonaws.com/123456789012/payments-queue"
       },
@@ -636,7 +643,7 @@
         "arn:aws:lambda:us-east-1:123456789012:function:payments-processor",
         "arn:aws:rds:us-east-1:123456789012:db:payments-db",
         "arn:aws:s3:::payments-receipts",
-        "arn:aws:sqs:us-east-1:123456789012:queue/payments-queue"
+        "arn:aws:sqs:us-east-1:123456789012:payments-queue"
       ]
     },
     {
