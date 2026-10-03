@@ -76,7 +76,7 @@ Other accounts are still scanned. The snapshot records who scanned each account 
 | `1` | Configuration error or failure; nothing usable was produced |
 | `2` | Scan finished and the snapshot was saved, but one or more accounts were **skipped** because their identity couldn't be confirmed |
 
-Treat `2` as a failure in scripts and CI: the inventory is incomplete.
+Treat `2` as a failure in scripts and CI: the inventory is incomplete. All commands and exit codes: [cli.md](cli.md).
 
 ## Rules that protect you
 

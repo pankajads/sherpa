@@ -9,14 +9,40 @@ from rich.table import Table
 
 from sherpa.core.models import NamingConvention, ScanConfig
 from sherpa.core.models.accounts import AwsAccountsFile
-from sherpa.core.store import InventoryStore
+from sherpa.core.store import CURRENT_SCHEMA_VERSION, InventoryStore, SchemaVersionError
 from sherpa.orchestrator import run_discovery
 
 console = Console()
 
-# Exit codes: 0 = complete scan, 1 = config error or failure, 2 = scan completed but one or
-# more scopes (e.g. AWS accounts) were skipped because their identity could not be confirmed.
+# Exit codes: 0 = success, 1 = config error or failure (e.g. unknown snapshot, database from a
+# newer Sherpa), 2 = scan completed but one or more scopes (e.g. AWS accounts) were skipped
+# because their identity could not be confirmed. See docs/cli.md.
 EXIT_INCOMPLETE_SCAN = 2
+
+DEFAULT_DB = "./.sherpa/sherpa.db"
+_db_option = click.option(
+    "--db",
+    "db_path",
+    default=DEFAULT_DB,
+    envvar="SHERPA_DB",
+    show_default=True,
+    help="SQLite inventory database (snapshots accumulate here). ':memory:' keeps nothing.",
+)
+
+
+def _open_store(db_path: str) -> InventoryStore:
+    try:
+        store = InventoryStore(db_path)
+    except SchemaVersionError as exc:
+        console.print(f"[red]Database error:[/red] {exc}")
+        raise SystemExit(1) from exc
+    if store.migrated_from < CURRENT_SCHEMA_VERSION:
+        console.print(
+            f"[yellow]Upgraded database[/yellow] {db_path} from schema "
+            f"v{store.migrated_from} to v{CURRENT_SCHEMA_VERSION} "
+            f"(backup: {db_path}.bak-v{store.migrated_from})"
+        )
+    return store
 
 
 @click.group()
@@ -71,7 +97,7 @@ def cli() -> None:
     type=click.Path(),
     help="Directory to write snapshot JSON and report.",
 )
-@click.option("--db", "db_path", default=":memory:", show_default=True, help="SQLite DB path.")
+@_db_option
 @click.option(
     "--naming-convention",
     "naming_convention_file",
@@ -133,7 +159,7 @@ def discover(
         console.print(f"[red]Config error:[/red] {exc}")
         raise SystemExit(1) from exc
 
-    store = InventoryStore(db_path)
+    store = _open_store(db_path)
     out_path = Path(output_dir)
 
     console.print("[bold cyan]Sherpa[/bold cyan] starting discovery…")
@@ -165,6 +191,88 @@ def discover(
             f"because their identity could not be confirmed: {', '.join(snapshot.unverified_scopes)}"
         )
         raise SystemExit(EXIT_INCOMPLETE_SCAN)
+
+
+@cli.group()
+def snapshots() -> None:
+    """Browse the inventory snapshots stored in the database."""
+
+
+@snapshots.command("list")
+@_db_option
+def snapshots_list(db_path: str) -> None:
+    """List snapshots, oldest first."""
+    rows = _open_store(db_path).snapshot_summaries()
+    if not rows:
+        console.print(f"No snapshots in {db_path}. Run `sherpa discover` first.")
+        return
+    table = Table(title=f"Snapshots in {db_path}", show_header=True)
+    for column, justify in (
+        ("Snapshot", "left"),
+        ("Started (UTC)", "left"),
+        ("Sources", "left"),
+        ("Resources", "right"),
+        ("Repos", "right"),
+        ("Pipelines", "right"),
+        ("Workloads", "right"),
+        ("Gaps", "right"),
+        ("Skipped", "right"),
+    ):
+        table.add_column(column, justify=justify)  # type: ignore[arg-type]
+    for r in rows:
+        table.add_row(
+            r["snapshot_id"],
+            r["started_at"].strftime("%Y-%m-%d %H:%M:%S"),
+            _sources(r["aws_accounts"], r["github_org"]),
+            str(r["resources"]),
+            str(r["repositories"]),
+            str(r["pipelines"]),
+            str(r["workloads"]),
+            str(r["coverage_gaps"]),
+            str(r["unverified_scopes"]),
+        )
+    console.print(table)
+
+
+@snapshots.command("show")
+@click.argument("snapshot_id")
+@_db_option
+@click.option("--json", "as_json", is_flag=True, help="Print the full snapshot as JSON.")
+def snapshots_show(snapshot_id: str, db_path: str, as_json: bool) -> None:
+    """Show one snapshot. SNAPSHOT_ID may be a unique prefix."""
+    store = _open_store(db_path)
+    matches = store.resolve_snapshot_id(snapshot_id)
+    if len(matches) != 1:
+        problem = "No snapshot matches" if not matches else "Ambiguous snapshot ID"
+        hint = "" if not matches else f": {', '.join(matches)}"
+        console.print(f"[red]{problem}[/red] '{snapshot_id}'{hint}")
+        raise SystemExit(1)
+    snapshot = store.load_snapshot(matches[0])
+    assert snapshot is not None
+    if as_json:
+        click.echo(snapshot.to_canonical_json(), nl=False)
+        return
+    console.print(f"[bold]Snapshot[/bold] {snapshot.snapshot_id}")
+    console.print(f"  Started   : {snapshot.started_at.isoformat()}")
+    completed = snapshot.completed_at.isoformat() if snapshot.completed_at else "not completed"
+    console.print(f"  Completed : {completed}")
+    console.print(
+        f"  Sources   : {_sources(snapshot.config.aws_accounts, snapshot.config.github_org)}"
+    )
+    _print_summary(snapshot)
+    for identity in snapshot.scan_identities:
+        mark = "[green]✓[/green]" if identity.verified else "[red]✗[/red]"
+        who = identity.principal if identity.verified else identity.detail
+        console.print(f"  {mark} {identity.scope}: {who}")
+
+
+def _sources(aws_accounts: list[str], github_org: str | None) -> str:
+    parts = []
+    if aws_accounts:
+        parts.append(f"AWS ×{len(aws_accounts)}")
+    if github_org:
+        parts.append(f"GitHub {github_org}")
+    return ", ".join(parts) or "-"
 
 
 def _print_aws_plan(config: ScanConfig) -> None:
