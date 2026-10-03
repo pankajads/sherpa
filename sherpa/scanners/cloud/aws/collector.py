@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from sherpa.core.models import Resource, ResourceDependency
@@ -10,6 +11,11 @@ from sherpa.core.models.enums import DependencyPlane, DependencyType, ResourceTy
 
 def _arn(service: str, resource_type: str, region: str, account: str, resource_id: str) -> str:
     return f"arn:aws:{service}:{region}:{account}:{resource_type}/{resource_id}"
+
+
+def _policy_text(doc: Any) -> str:
+    """Stable text for a policy document (boto3 returns a dict; key order varies)."""
+    return doc if isinstance(doc, str) else json.dumps(doc, sort_keys=True)
 
 
 async def collect_ec2(client: Any, region: str, account_id: str) -> list[Resource]:
@@ -300,7 +306,7 @@ async def collect_iam_roles(client: Any, region: str, account_id: str) -> list[R
                     tags={},
                     metadata={
                         "path": role.get("Path"),
-                        "trust_policy": str(role.get("AssumeRolePolicyDocument", {})),
+                        "trust_policy": _policy_text(role.get("AssumeRolePolicyDocument", {})),
                     },
                 )
             )

@@ -85,16 +85,18 @@ async def run_discovery(
     # 6. Validate coverage
     coverage_gaps = validate_coverage(config, linked_resources, all_errors)
 
-    # 7. Close snapshot
-    closed = snapshot.model_copy(
-        update={
-            "resources": sorted(linked_resources, key=lambda r: r.id),
-            "repositories": sorted(all_repos, key=lambda r: r.id),
-            "pipelines": sorted(all_pipelines, key=lambda p: p.id),
-            "workloads": workloads,
-            "coverage_gaps": coverage_gaps,
-            "errors": all_errors,
-        }
+    # 7. Close snapshot. Constructed (not model_copy'd) so the model's canonical ordering
+    # validators run on every list.
+    closed = InventorySnapshot(
+        snapshot_id=snapshot.snapshot_id,
+        started_at=snapshot.started_at,
+        config=config,
+        resources=linked_resources,
+        repositories=all_repos,
+        pipelines=all_pipelines,
+        workloads=workloads,
+        coverage_gaps=coverage_gaps,
+        errors=all_errors,
     ).close()
 
     store.save_snapshot(closed)
@@ -103,7 +105,7 @@ async def run_discovery(
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
         snapshot_path = output_dir / f"snapshot_{closed.snapshot_id}.json"
-        snapshot_path.write_text(closed.model_dump_json(indent=2))
+        snapshot_path.write_text(closed.to_canonical_json())
         report_path = output_dir / f"report_{closed.snapshot_id}.md"
         report_path.write_text(_render_report(closed))
 

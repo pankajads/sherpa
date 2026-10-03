@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from sherpa.core.models import CoverageGap, Resource, ScanConfig
+from sherpa.core.models.inventory import coverage_gap_sort_key
 
 _EXPECTED_RESOURCE_TYPES_BY_CATEGORY = {
     "compute": {"aws::ec2::instance", "aws::lambda::function", "aws::ecs::cluster"},
@@ -54,4 +55,4 @@ def validate_coverage(
             )
         )
 
-    return gaps
+    return sorted(gaps, key=coverage_gap_sort_key)

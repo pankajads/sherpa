@@ -56,8 +56,8 @@ class InventoryStore:
                         region=r.region,
                         account_id=r.account_id,
                         name=r.name,
-                        tags_json=json.dumps(r.tags),
-                        metadata_json=json.dumps(r.metadata),
+                        tags_json=json.dumps(r.tags, sort_keys=True),
+                        metadata_json=json.dumps(r.metadata, sort_keys=True),
                     )
                 )
                 for dep in r.dependencies:
@@ -68,7 +68,7 @@ class InventoryStore:
                             target_id=dep.target_id,
                             dependency_type=str(dep.dependency_type),
                             plane=str(dep.plane),
-                            metadata_json=json.dumps(dep.metadata),
+                            metadata_json=json.dumps(dep.metadata, sort_keys=True),
                         )
                     )
             for repo in snapshot.repositories:
@@ -85,7 +85,7 @@ class InventoryStore:
                         has_dockerfile=repo.has_dockerfile,
                         has_docker_compose=repo.has_docker_compose,
                         default_branch=repo.default_branch,
-                        metadata_json=json.dumps(repo.metadata),
+                        metadata_json=json.dumps(repo.metadata, sort_keys=True),
                     )
                 )
             for pipe in snapshot.pipelines:
@@ -111,7 +111,7 @@ class InventoryStore:
                         pipeline_ids_json=json.dumps(wl.pipeline_ids),
                         inferred_from=wl.inferred_from,
                         migration_path=str(wl.migration_path),
-                        metadata_json=json.dumps(wl.metadata),
+                        metadata_json=json.dumps(wl.metadata, sort_keys=True),
                     )
                 )
 

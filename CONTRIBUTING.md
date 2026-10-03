@@ -48,7 +48,7 @@ These come from [CLAUDE.md](CLAUDE.md#design-principles). A PR that breaks one w
 
 - **Read-only.** Collectors only call read APIs. Never collect secret values, environment variables or data contents.
 - **Never serialise credentials** — not into snapshots, reports, the store, bundles or logs.
-- **Deterministic.** The same inputs produce byte-identical outputs: content-derived IDs, stably sorted lists.
+- **Deterministic.** The same inputs produce byte-identical outputs: content-derived IDs, stably sorted lists. See [docs/determinism.md](docs/determinism.md); if the golden test fails, regenerate only when the change is intentional.
 - **Surface, don't swallow.** Every caught error becomes a recorded coverage gap; no `except: pass`.
 - **Compliance is a flag, never a score.**
 - **No cloud SDK in the core.** Cloud-specific code lives in scanner plugins.

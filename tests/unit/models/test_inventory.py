@@ -174,10 +174,15 @@ class TestInventorySnapshot:
 
 
 class TestWorkload:
-    def test_workload_gets_uuid_by_default(self):
-        w1 = Workload(name="checkout")
-        w2 = Workload(name="checkout")
-        assert w1.id != w2.id
+    def test_workload_id_is_content_derived(self):
+        # Same name ⇒ same ID across runs (determinism, #10); different name ⇒ different ID.
+        assert Workload(name="checkout").id == Workload(name="checkout").id
+        assert Workload(name="checkout").id != Workload(name="payments").id
+        assert Workload(name="checkout").id.startswith("wl-")
+
+    def test_explicit_workload_id_is_kept(self):
+        # Snapshots reloaded from the store keep their stored IDs.
+        assert Workload(id="wl-stored", name="checkout").id == "wl-stored"
 
     def test_migration_path_defaults_unknown(self):
         w = Workload(name="api")

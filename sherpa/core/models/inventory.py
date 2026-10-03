@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, SecretStr, model_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
 from .enums import (
     DependencyPlane,
@@ -15,6 +17,22 @@ from .enums import (
 )
 from .naming import NamingConvention
 
+# Determinism (CLAUDE.md): every list in a persisted model is sorted on construction and
+# every dict is serialised with sorted keys, so output never depends on API response order.
+# Note: `model_copy(update=...)` skips validation — build new models instead when lists change.
+
+
+def _canonical(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, default=str)
+
+
+def workload_id(name: str) -> str:
+    """Content-derived workload ID: identical names give identical IDs across runs."""
+    return "wl-" + hashlib.sha256(name.encode("utf-8")).hexdigest()[:16]
+
+
+_SEVERITY_RANK = {"error": 0, "warning": 1, "info": 2}
+
 
 class ResourceDependency(BaseModel):
     source_id: str
@@ -24,6 +42,16 @@ class ResourceDependency(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     model_config = {"frozen": True}
+
+
+def dependency_sort_key(dep: ResourceDependency) -> tuple[str, str, str, str, str]:
+    return (
+        dep.source_id,
+        dep.target_id,
+        str(dep.dependency_type),
+        str(dep.plane),
+        _canonical(dep.metadata),
+    )
 
 
 class Resource(BaseModel):
@@ -37,6 +65,16 @@ class Resource(BaseModel):
     dependencies: list[ResourceDependency] = Field(default_factory=list)
 
     model_config = {"frozen": True}
+
+    @field_validator("tags")
+    @classmethod
+    def _sort_tags(cls, v: dict[str, str]) -> dict[str, str]:
+        return dict(sorted(v.items()))
+
+    @field_validator("dependencies")
+    @classmethod
+    def _sort_dependencies(cls, v: list[ResourceDependency]) -> list[ResourceDependency]:
+        return sorted(v, key=dependency_sort_key)
 
 
 class PackageDependency(BaseModel):
@@ -56,6 +94,11 @@ class PipelineStage(BaseModel):
 
     model_config = {"frozen": True}
 
+    @field_validator("aws_deploy_actions", "target_accounts", "target_regions")
+    @classmethod
+    def _sort_lists(cls, v: list[str]) -> list[str]:
+        return sorted(v)
+
 
 class Repository(BaseModel):
     id: str  # "{host}/{org}/{repo}"
@@ -70,6 +113,16 @@ class Repository(BaseModel):
 
     model_config = {"frozen": True}
 
+    @field_validator("declared_resource_ids")
+    @classmethod
+    def _sort_ids(cls, v: list[str]) -> list[str]:
+        return sorted(v)
+
+    @field_validator("package_dependencies")
+    @classmethod
+    def _sort_packages(cls, v: list[PackageDependency]) -> list[PackageDependency]:
+        return sorted(v, key=lambda p: (p.ecosystem, p.name, p.version_spec))
+
 
 class Pipeline(BaseModel):
     id: str  # "{repo_id}/.github/workflows/{filename}"
@@ -81,9 +134,19 @@ class Pipeline(BaseModel):
 
     model_config = {"frozen": True}
 
+    @field_validator("stages")
+    @classmethod
+    def _sort_stages(cls, v: list[PipelineStage]) -> list[PipelineStage]:
+        return sorted(v, key=lambda st: (st.name, st.trigger_type, _canonical(st.model_dump())))
+
+    @field_validator("deploys_to_resource_ids", "deploys_to_accounts")
+    @classmethod
+    def _sort_lists(cls, v: list[str]) -> list[str]:
+        return sorted(v)
+
 
 class Workload(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = ""  # defaults to workload_id(name); see docs/determinism.md
     name: str
     resource_ids: list[str] = Field(default_factory=list)
     repo_ids: list[str] = Field(default_factory=list)
@@ -94,6 +157,18 @@ class Workload(BaseModel):
 
     model_config = {"frozen": True}
 
+    @model_validator(mode="before")
+    @classmethod
+    def _default_id(cls, data: Any) -> Any:
+        if isinstance(data, dict) and not data.get("id") and data.get("name") is not None:
+            data = {**data, "id": workload_id(data["name"])}
+        return data
+
+    @field_validator("resource_ids", "repo_ids", "pipeline_ids")
+    @classmethod
+    def _sort_ids(cls, v: list[str]) -> list[str]:
+        return sorted(v)
+
 
 class CoverageGap(BaseModel):
     description: str
@@ -102,6 +177,15 @@ class CoverageGap(BaseModel):
     severity: str = "warning"  # info, warning, error
 
     model_config = {"frozen": True}
+
+    @field_validator("affected_regions", "affected_services")
+    @classmethod
+    def _sort_lists(cls, v: list[str]) -> list[str]:
+        return sorted(v)
+
+
+def coverage_gap_sort_key(gap: CoverageGap) -> tuple[int, str, str]:
+    return (_SEVERITY_RANK.get(gap.severity, 3), gap.description, _canonical(gap.model_dump()))
 
 
 class ScanConfig(BaseModel):
@@ -143,6 +227,30 @@ class InventorySnapshot(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
     model_config = {"frozen": True}
+
+    @field_validator("resources", "repositories", "pipelines")
+    @classmethod
+    def _sort_by_id(cls, v: list[Any]) -> list[Any]:
+        return sorted(v, key=lambda x: x.id)
+
+    @field_validator("workloads")
+    @classmethod
+    def _sort_workloads(cls, v: list[Workload]) -> list[Workload]:
+        return sorted(v, key=lambda w: (w.name, w.id))
+
+    @field_validator("coverage_gaps")
+    @classmethod
+    def _sort_gaps(cls, v: list[CoverageGap]) -> list[CoverageGap]:
+        return sorted(v, key=coverage_gap_sort_key)
+
+    @field_validator("errors")
+    @classmethod
+    def _sort_errors(cls, v: list[str]) -> list[str]:
+        return sorted(v)
+
+    def to_canonical_json(self) -> str:
+        """Serialise with sorted keys at every level — the format of snapshot files."""
+        return json.dumps(self.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
 
     def close(self) -> InventorySnapshot:
         return self.model_copy(update={"completed_at": datetime.now(UTC)})

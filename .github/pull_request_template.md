@@ -18,7 +18,7 @@ Closes #
 
 - [ ] Tests prove the issue's success criteria and run in CI
 - [ ] `ruff check .`, `ruff format --check .` and `pytest` pass locally
-- [ ] Output stays deterministic (no random IDs, lists stably sorted)
+- [ ] Output stays deterministic: golden tests pass, or `tests/golden/data/` was regenerated with `--update-golden` and the diff is explained above
 - [ ] No credentials or secret values can reach snapshots, reports, the store or logs
 - [ ] Errors are recorded as coverage gaps, not swallowed
 - [ ] Docs updated for any user-facing change
