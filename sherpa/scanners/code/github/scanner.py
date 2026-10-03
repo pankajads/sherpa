@@ -7,7 +7,8 @@ from github import Github, GithubException
 
 from sherpa.core.interfaces import ScannerPlane, ScannerPlugin, ScanResult, ValidationResult
 from sherpa.core.models import CoverageGap, PackageDependency, Repository, ScanConfig
-from sherpa.core.models.enums import IaCType
+from sherpa.core.models.enums import ErrorClass, IaCType
+from sherpa.scanners._github_errors import classify
 
 # Account ID and region are optional in some ARNs (e.g. arn:aws:s3:::bucket-name)
 _ARN_PATTERN = re.compile(r"arn:aws:[a-z0-9\-]+:[a-z0-9\-]*:[0-9]*:[^\s\"']+")
@@ -34,10 +35,9 @@ def _parse_requirements(content: str) -> list[PackageDependency]:
 def _parse_package_json(content: str) -> list[PackageDependency]:
     import json
 
-    try:
-        data = json.loads(content)
-    except Exception:
-        return []
+    data = json.loads(content)  # invalid JSON raises; the caller records a coverage gap
+    if not isinstance(data, dict):
+        raise ValueError("package.json is not a JSON object")
     deps = []
     for section in ("dependencies", "devDependencies"):
         for name, version in (data.get(section) or {}).items():
@@ -119,19 +119,26 @@ class GithubCodeScanner(ScannerPlugin):
                         description=f"GitHub org {config.github_org} could not be read: "
                         "no repositories were scanned",
                         severity="error",
+                        scanner=self.scanner_type,
+                        scope=f"github.com/{config.github_org}",
+                        error_class=classify(exc),
                     )
                 ],
             )
 
         for repo in sorted(org.get_repos(), key=lambda r: r.full_name):
             try:
-                repo_obj = self._scan_repo(repo, config.github_org or "")
+                repo_obj = self._scan_repo(repo, config.github_org or "", coverage_gaps)
                 repositories.append(repo_obj)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - one bad repo must not stop the scan
                 errors.append(f"{repo.full_name}: {exc}")
                 coverage_gaps.append(
                     CoverageGap(
-                        description=f"Skipped repo {repo.full_name}: {exc}", severity="warning"
+                        description=f"Skipped repo {repo.full_name}: {exc}",
+                        severity="warning",
+                        scanner=self.scanner_type,
+                        scope=f"github.com/{repo.full_name}",
+                        error_class=classify(exc),
                     )
                 )
 
@@ -142,7 +149,7 @@ class GithubCodeScanner(ScannerPlugin):
             errors=errors,
         )
 
-    def _scan_repo(self, repo: Any, org: str) -> Repository:
+    def _scan_repo(self, repo: Any, org: str, gaps: list[CoverageGap]) -> Repository:
 
         repo_id = f"github.com/{repo.full_name}"
         all_arns: list[str] = []
@@ -152,10 +159,24 @@ class GithubCodeScanner(ScannerPlugin):
         has_dockerfile = False
         has_docker_compose = False
 
+        unreadable: list[tuple[str, Exception]] = []
         try:
             contents = repo.get_git_tree(repo.default_branch, recursive=True).tree
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - reported as a coverage gap
+            # Without a tree the repo would look empty (no IaC, no dependencies): say so.
             contents = []
+            gaps.append(
+                CoverageGap(
+                    description=(
+                        f"File list of {repo_id} could not be read: its IaC, dependencies "
+                        "and resource references are missing"
+                    ),
+                    severity="warning",
+                    scanner=self.scanner_type,
+                    scope=repo_id,
+                    error_class=classify(exc),
+                )
+            )
 
         for item in contents:
             path = item.path
@@ -181,12 +202,43 @@ class GithubCodeScanner(ScannerPlugin):
                     if isinstance(file_content, list):
                         file_content = file_content[0]
                     decoded = file_content.decoded_content.decode("utf-8", errors="replace")
-                    content_map[fname] = decoded
-                    if fname in _PACKAGE_PARSERS:
+                except Exception as exc:  # noqa: BLE001 - reported as a coverage gap below
+                    unreadable.append((path, exc))
+                    continue
+                content_map[fname] = decoded
+                if fname in _PACKAGE_PARSERS:
+                    try:
                         all_deps.extend(_PACKAGE_PARSERS[fname](decoded))
-                    all_arns.extend(_extract_arns(decoded))
-                except Exception:
-                    pass
+                    except ValueError as exc:
+                        gaps.append(
+                            CoverageGap(
+                                description=(
+                                    f"{path} in {repo_id} could not be parsed ({exc}): its "
+                                    "dependencies are missing"
+                                ),
+                                severity="warning",
+                                scanner=self.scanner_type,
+                                scope=repo_id,
+                                error_class=ErrorClass.INVALID_CONTENT,
+                            )
+                        )
+                all_arns.extend(_extract_arns(decoded))
+
+        if unreadable:
+            first_path, first_exc = sorted(unreadable, key=lambda u: u[0])[0]
+            gaps.append(
+                CoverageGap(
+                    description=(
+                        f"{len(unreadable)} file(s) in {repo_id} could not be read (e.g. "
+                        f"{first_path}): IaC, dependencies or resource references in them "
+                        "are missing"
+                    ),
+                    severity="warning",
+                    scanner=self.scanner_type,
+                    scope=repo_id,
+                    error_class=classify(first_exc),
+                )
+            )
 
         iac_type = _detect_iac(file_names, content_map)
 

@@ -50,14 +50,16 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+# BLE001 / S110 / S112: no blind or silent exception handling ("surface, don't swallow").
+# A deliberate catch-all needs `# noqa: BLE001 - <why>` and must record a coverage gap/error.
+select = ["E", "F", "I", "UP", "B", "SIM", "BLE", "S110", "S112"]
 ignore = [
     "E501",   # line too long — handled by formatter
     "B008",   # do not perform function calls in argument defaults
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "B904"]  # assert in tests; StopAsyncIteration re-raise pattern
+"tests/**" = ["S101", "B904", "BLE001"]  # assert in tests; StopAsyncIteration re-raise pattern
 
 [tool.hatch.build.targets.wheel]
 packages = ["sherpa"]

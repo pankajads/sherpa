@@ -124,7 +124,7 @@ def load_scanners(
         where = f"scanner plugin '{name}' ({value})"
         try:
             obj = ep.load()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - third-party plugin; reported in errors
             errors.append(f"{where} failed to load: {type(exc).__name__}: {exc}")
             continue
         if not (isinstance(obj, type) and issubclass(obj, ScannerPlugin)):
@@ -134,7 +134,7 @@ def load_scanners(
             instance = obj()
             scanner_type = instance.scanner_type
             ScannerPlane(instance.plane)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - third-party plugin; reported in errors
             errors.append(f"{where} could not be initialised: {type(exc).__name__}: {exc}")
             continue
         if not _SCANNER_TYPE.match(scanner_type):

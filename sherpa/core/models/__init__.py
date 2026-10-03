@@ -1,4 +1,11 @@
-from .enums import DependencyPlane, DependencyType, IaCType, MigrationPath, ResourceType
+from .enums import (
+    DependencyPlane,
+    DependencyType,
+    ErrorClass,
+    IaCType,
+    MigrationPath,
+    ResourceType,
+)
 from .inventory import (
     AwsAccountSettings,
     AwsTarget,
@@ -22,6 +29,7 @@ __all__ = [
     "CoverageGap",
     "DependencyPlane",
     "DependencyType",
+    "ErrorClass",
     "IaCType",
     "InventorySnapshot",
     "MigrationPath",
