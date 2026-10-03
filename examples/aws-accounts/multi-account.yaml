@@ -1,0 +1,30 @@
+# Accounts to scan, with optional per-account regions and roles.
+#
+# Usage: sherpa discover --accounts-file examples/aws-accounts/multi-account.yaml
+#
+# Quote every account ID: unquoted YAML numbers drop leading zeros, so they are rejected.
+
+# Regions used for any account that doesn't list its own (a --regions flag overrides this).
+default_regions: [us-east-1]
+
+# Role assumed in every account unless the account overrides it:
+#   arn:aws:iam::<account>:role/<role_name>
+# Defaults to SherpaReadOnly when several accounts are scanned.
+role_name: SherpaReadOnly
+
+# If the roles' trust policies require an ExternalId (recommended for cross-company access).
+# Prefer the SHERPA_AWS_EXTERNAL_ID environment variable or --external-id for real values.
+# external_id: "set-me"
+
+accounts:
+  - id: "111111111111"
+    name: prod
+    regions: [eu-west-1, eu-central-1]   # this account runs only in the EU
+
+  - id: "222222222222"
+    name: shared-services                # uses default_regions and role_name
+
+  - id: "012345678901"
+    name: legacy
+    # An account whose audit role predates the naming convention.
+    role_arn: arn:aws:iam::012345678901:role/security/LegacyAudit
