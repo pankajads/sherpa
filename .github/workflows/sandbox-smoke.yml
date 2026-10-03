@@ -38,6 +38,17 @@ jobs:
       - name: Install Sherpa
         run: pip install -e .
 
+      # Diagnostics for "Not authorized to perform sts:AssumeRoleWithWebIdentity": the
+      # role's trust policy must match these claims exactly. Prints claims, never the token.
+      - name: Show OIDC token claims
+        run: |
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+          payload=$(cut -d. -f2 <<<"$token" | tr '_-' '/+')
+          while (( ${#payload} % 4 )); do payload+="="; done
+          base64 -d <<<"$payload" | jq '{sub, aud, repository, environment, ref}'
+          echo "The SherpaRefCi trust policy expects sub = repo:${{ github.repository }}:environment:sandbox"
+
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::${{ vars.SANDBOX_CI_ACCOUNT_ID }}:role/sherpa-ref/SherpaRefCi
