@@ -57,6 +57,14 @@
             "aws-actions/configure-aws-credentials",
             "terraform-apply"
           ],
+          "deploy_targets": [
+            {
+              "confidence": "high",
+              "method": "configure-aws-credentials:role-to-assume",
+              "resource_type": "aws::iam::role",
+              "value": "arn:aws:iam::123456789012:role/ci-deploy-role"
+            }
+          ],
           "name": "deploy",
           "target_accounts": [
             "123456789012"
@@ -68,6 +76,7 @@
         },
         {
           "aws_deploy_actions": [],
+          "deploy_targets": [],
           "name": "test",
           "target_accounts": [],
           "target_regions": [],
@@ -159,15 +168,7 @@
   "resources": [
     {
       "account_id": "123456789012",
-      "dependencies": [
-        {
-          "dependency_type": "deploys_to",
-          "metadata": {},
-          "plane": "cross",
-          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
-          "target_id": "arn:aws:dynamodb:eu-west-1:123456789012:table/reporting-events"
-        }
-      ],
+      "dependencies": [],
       "id": "arn:aws:dynamodb:eu-west-1:123456789012:table/reporting-events",
       "metadata": {
         "billing_mode": "PAY_PER_REQUEST",
@@ -181,15 +182,7 @@
     },
     {
       "account_id": "123456789012",
-      "dependencies": [
-        {
-          "dependency_type": "deploys_to",
-          "metadata": {},
-          "plane": "cross",
-          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
-          "target_id": "arn:aws:ec2:eu-west-1:123456789012:instance/i-0ccc3333"
-        }
-      ],
+      "dependencies": [],
       "id": "arn:aws:ec2:eu-west-1:123456789012:instance/i-0ccc3333",
       "metadata": {
         "instance_type": "m5.large",
@@ -220,13 +213,6 @@
           "plane": "cloud",
           "source_id": "arn:aws:ec2:us-east-1:123456789012:instance/i-0aaa1111",
           "target_id": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-0web"
-        },
-        {
-          "dependency_type": "deploys_to",
-          "metadata": {},
-          "plane": "cross",
-          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
-          "target_id": "arn:aws:ec2:us-east-1:123456789012:instance/i-0aaa1111"
         }
       ],
       "id": "arn:aws:ec2:us-east-1:123456789012:instance/i-0aaa1111",
@@ -253,13 +239,6 @@
           "plane": "cloud",
           "source_id": "arn:aws:ec2:us-east-1:123456789012:instance/i-0bbb2222",
           "target_id": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-0web"
-        },
-        {
-          "dependency_type": "deploys_to",
-          "metadata": {},
-          "plane": "cross",
-          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
-          "target_id": "arn:aws:ec2:us-east-1:123456789012:instance/i-0bbb2222"
         }
       ],
       "id": "arn:aws:ec2:us-east-1:123456789012:instance/i-0bbb2222",
@@ -277,15 +256,7 @@
     },
     {
       "account_id": "123456789012",
-      "dependencies": [
-        {
-          "dependency_type": "deploys_to",
-          "metadata": {},
-          "plane": "cross",
-          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
-          "target_id": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-0db"
-        }
-      ],
+      "dependencies": [],
       "id": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-0db",
       "metadata": {
         "description": "db",
@@ -300,15 +271,7 @@
     },
     {
       "account_id": "123456789012",
-      "dependencies": [
-        {
-          "dependency_type": "deploys_to",
-          "metadata": {},
-          "plane": "cross",
-          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
-          "target_id": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-0web"
-        }
-      ],
+      "dependencies": [],
       "id": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-0web",
       "metadata": {
         "description": "web",
@@ -321,15 +284,7 @@
     },
     {
       "account_id": "123456789012",
-      "dependencies": [
-        {
-          "dependency_type": "deploys_to",
-          "metadata": {},
-          "plane": "cross",
-          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
-          "target_id": "arn:aws:ec2:us-east-1:123456789012:vpc/vpc-0main"
-        }
-      ],
+      "dependencies": [],
       "id": "arn:aws:ec2:us-east-1:123456789012:vpc/vpc-0main",
       "metadata": {
         "cidr": "10.0.0.0/16",
@@ -344,15 +299,7 @@
     },
     {
       "account_id": "123456789012",
-      "dependencies": [
-        {
-          "dependency_type": "deploys_to",
-          "metadata": {},
-          "plane": "cross",
-          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
-          "target_id": "arn:aws:ecs:us-east-1:123456789012:cluster/checkout-cluster"
-        }
-      ],
+      "dependencies": [],
       "id": "arn:aws:ecs:us-east-1:123456789012:cluster/checkout-cluster",
       "metadata": {
         "running_tasks_count": 3,
@@ -378,7 +325,11 @@
         },
         {
           "dependency_type": "deploys_to",
-          "metadata": {},
+          "metadata": {
+            "confidence": "high",
+            "job": "deploy",
+            "method": "configure-aws-credentials:role-to-assume"
+          },
           "plane": "cross",
           "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
           "target_id": "arn:aws:iam::123456789012:role/ci-deploy-role"
@@ -396,15 +347,7 @@
     },
     {
       "account_id": "123456789012",
-      "dependencies": [
-        {
-          "dependency_type": "deploys_to",
-          "metadata": {},
-          "plane": "cross",
-          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
-          "target_id": "arn:aws:iam::123456789012:role/payments-lambda-role"
-        }
-      ],
+      "dependencies": [],
       "id": "arn:aws:iam::123456789012:role/payments-lambda-role",
       "metadata": {
         "path": "/",
@@ -424,13 +367,6 @@
           "plane": "cloud",
           "source_id": "arn:aws:lambda:us-east-1:123456789012:function:payments-processor",
           "target_id": "arn:aws:sqs:us-east-1:123456789012:payments-queue"
-        },
-        {
-          "dependency_type": "deploys_to",
-          "metadata": {},
-          "plane": "cross",
-          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
-          "target_id": "arn:aws:lambda:us-east-1:123456789012:function:payments-processor"
         }
       ],
       "id": "arn:aws:lambda:us-east-1:123456789012:function:payments-processor",
@@ -454,13 +390,6 @@
           "plane": "cross",
           "source_id": "github.com/acme/payments-service",
           "target_id": "arn:aws:rds:us-east-1:123456789012:db:payments-db"
-        },
-        {
-          "dependency_type": "deploys_to",
-          "metadata": {},
-          "plane": "cross",
-          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
-          "target_id": "arn:aws:rds:us-east-1:123456789012:db:payments-db"
         }
       ],
       "id": "arn:aws:rds:us-east-1:123456789012:db:payments-db",
@@ -480,15 +409,7 @@
     },
     {
       "account_id": "123456789012",
-      "dependencies": [
-        {
-          "dependency_type": "deploys_to",
-          "metadata": {},
-          "plane": "cross",
-          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
-          "target_id": "arn:aws:s3:::checkout-assets"
-        }
-      ],
+      "dependencies": [],
       "id": "arn:aws:s3:::checkout-assets",
       "metadata": {
         "creation_date": "2024-01-15 00:00:00+00:00"
@@ -500,15 +421,7 @@
     },
     {
       "account_id": "123456789012",
-      "dependencies": [
-        {
-          "dependency_type": "deploys_to",
-          "metadata": {},
-          "plane": "cross",
-          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
-          "target_id": "arn:aws:s3:::payments-receipts"
-        }
-      ],
+      "dependencies": [],
       "id": "arn:aws:s3:::payments-receipts",
       "metadata": {
         "creation_date": "2024-01-15 00:00:00+00:00"
@@ -520,15 +433,7 @@
     },
     {
       "account_id": "123456789012",
-      "dependencies": [
-        {
-          "dependency_type": "deploys_to",
-          "metadata": {},
-          "plane": "cross",
-          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
-          "target_id": "arn:aws:s3:::reporting-exports"
-        }
-      ],
+      "dependencies": [],
       "id": "arn:aws:s3:::reporting-exports",
       "metadata": {
         "creation_date": "2024-01-15 00:00:00+00:00"
@@ -540,15 +445,7 @@
     },
     {
       "account_id": "123456789012",
-      "dependencies": [
-        {
-          "dependency_type": "deploys_to",
-          "metadata": {},
-          "plane": "cross",
-          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
-          "target_id": "arn:aws:sns:us-east-1:123456789012:checkout-events"
-        }
-      ],
+      "dependencies": [],
       "id": "arn:aws:sns:us-east-1:123456789012:checkout-events",
       "metadata": {},
       "name": "checkout-events",
@@ -564,13 +461,6 @@
           "metadata": {},
           "plane": "cross",
           "source_id": "github.com/acme/payments-service",
-          "target_id": "arn:aws:sqs:us-east-1:123456789012:payments-queue"
-        },
-        {
-          "dependency_type": "deploys_to",
-          "metadata": {},
-          "plane": "cross",
-          "source_id": "github.com/acme/payments-service/.github/workflows/deploy.yml",
           "target_id": "arn:aws:sqs:us-east-1:123456789012:payments-queue"
         }
       ],

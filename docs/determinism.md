@@ -42,4 +42,4 @@ pytest tests/golden --update-golden   # rewrites tests/golden/data/*
 git diff tests/golden/data/           # review: every change should be explained by your PR
 ```
 
-The golden files currently capture a known defect: finding C-6, where a pipeline gets linked to every resource in an account. Fixing it will remove those edges from the golden snapshot. That diff is the evidence the fix works.
+A golden diff is also evidence that a fix works. Fixing finding C-6 (#27), where a pipeline was linked to every resource in its account, removed exactly those 16 wrong edges from the golden snapshot and nothing else.

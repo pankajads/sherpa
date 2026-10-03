@@ -73,8 +73,8 @@ def _v1_copy(tmp_path: Path) -> Path:
 
 class TestRoundTrip:
     async def test_reloaded_snapshot_is_byte_identical(self, tmp_path):
-        # Regression: v1 lost 19 of 23 dependency edges (all cross-plane ones), the coverage
-        # gaps, errors and scan identities, and the timestamps' time zone.
+        # Regression: v1 lost all cross-plane dependency edges, the coverage gaps, errors and
+        # scan identities, and the timestamps' time zone.
         store = InventoryStore(tmp_path / "sherpa.db")
         snapshot = await _discover(store)
 
@@ -82,7 +82,11 @@ class TestRoundTrip:
 
         assert reloaded is not None
         assert reloaded.to_canonical_json() == snapshot.to_canonical_json()
-        assert sum(len(r.dependencies) for r in reloaded.resources) == 24
+        assert sum(len(r.dependencies) for r in reloaded.resources) == 8
+        deploy_edge = next(
+            d for r in reloaded.resources for d in r.dependencies if d.source_id.endswith(".yml")
+        )
+        assert deploy_edge.metadata["confidence"] == "high"  # edge provenance survives
 
     async def test_gaps_errors_and_identities_survive(self, tmp_path):
         from sherpa.core.models import CoverageGap, ErrorClass, ScanIdentity
