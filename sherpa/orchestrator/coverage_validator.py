@@ -21,18 +21,22 @@ def validate_coverage(
     gaps: list[CoverageGap] = []
 
     found_types: set[str] = {str(r.resource_type) for r in resources}
-    found_regions: set[str] = {r.region for r in resources}
+    found: set[tuple[str, str]] = {(r.account_id, r.region) for r in resources}
 
-    # Flag regions with no resources at all
-    empty_regions = [r for r in config.aws_regions if r not in found_regions]
-    if empty_regions:
-        gaps.append(
-            CoverageGap(
-                description="No resources found in one or more configured regions — may indicate access issues",
-                affected_regions=empty_regions,
-                severity="warning",
+    # Flag, per account, configured regions with no resources at all
+    for target in config.aws_targets():
+        empty_regions = [r for r in target.regions if (target.account_id, r) not in found]
+        if empty_regions:
+            gaps.append(
+                CoverageGap(
+                    description=(
+                        f"No resources found in account {target.account_id} for one or more "
+                        "configured regions — may indicate access issues"
+                    ),
+                    affected_regions=empty_regions,
+                    severity="warning",
+                )
             )
-        )
 
     # Flag service categories with no matching resources
     for category in config.service_categories:

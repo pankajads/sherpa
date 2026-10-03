@@ -142,12 +142,15 @@ pip install -e ".[dev]"
 pytest
 export GITHUB_TOKEN=...   # read-only token; prefer the env var over --github-token
 sherpa discover --aws-account 123456789012 --regions us-east-1 --github-org my-org
+
+# Several accounts, each with its own regions and role:
+sherpa discover --accounts-file examples/aws-accounts/multi-account.yaml --github-org my-org
 ```
 
 ### Credentials
 
 - **GitHub:** read from `GITHUB_TOKEN` (or `--github-token`; the env var keeps it out of shell history and process lists).
-- **AWS:** the standard AWS credential chain (env vars, `~/.aws` profiles, SSO, instance/container roles). With `--assume-role`, Sherpa assumes that role and keeps the temporary credentials in memory only.
+- **AWS:** the standard AWS credential chain (env vars, `~/.aws` profiles, SSO, instance/container roles). A single account is scanned with those credentials. For several accounts, Sherpa assumes a read-only role in each one (default `SherpaReadOnly`) and keeps the temporary credentials in memory only. See [docs/aws-access.md](docs/aws-access.md) for the accounts file, per-account regions, ExternalId and role setup.
 - **Credentials are never persisted.** They are excluded from snapshot JSON, reports, the SQLite store and logs. CI enforces this with a sentinel-credential test plus a gitleaks scan of everything Sherpa writes.
 
 > **If you ran Sherpa before October 2026 with `--db <file>`, or shared a `snapshot_*.json`:** those files contain your GitHub token in plain text. Rotate the token and delete or scrub the files.

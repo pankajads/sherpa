@@ -11,6 +11,7 @@ from sherpa.core.models import (
     Repository,
     Resource,
     ScanConfig,
+    ScanIdentity,
 )
 
 
@@ -34,6 +35,7 @@ class ScanResult(BaseModel):
     pipelines: list[Pipeline] = []
     coverage_gaps: list[CoverageGap] = []
     errors: list[str] = []
+    scan_identities: list[ScanIdentity] = []
     metadata: dict[str, Any] = {}
 
 

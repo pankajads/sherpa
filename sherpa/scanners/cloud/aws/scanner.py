@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import aioboto3
 
 from sherpa.core.interfaces import ScannerPlugin, ScanResult, ValidationResult
-from sherpa.core.models import CoverageGap, Resource, ScanConfig
+from sherpa.core.models import AwsTarget, CoverageGap, Resource, ScanConfig, ScanIdentity
 
 from .collector import (
     collect_dynamodb,
@@ -45,7 +47,68 @@ _CATEGORY_COLLECTORS: dict[str, list[tuple[str, Any]]] = {
 }
 
 
+# Stable session name so the target's security team can find every Sherpa call in CloudTrail.
+ROLE_SESSION_NAME = "SherpaDiscovery"
+_REFRESH_MARGIN = timedelta(minutes=5)
+# IAM is global: scan it once per account through its global (us-east-1) endpoint, whatever
+# regions the account uses.
+_GLOBAL_SERVICES = {"iam": "us-east-1"}
+
+
+def _arn_account(resource_id: str) -> str | None:
+    parts = resource_id.split(":")
+    if resource_id.startswith("arn:") and len(parts) > 4 and parts[4].isdigit():
+        return parts[4]
+    return None
+
+
+class _AccountCredentials:
+    """Credentials for one account: assumed once, cached, refreshed shortly before expiry."""
+
+    def __init__(self, session: Any, target: AwsTarget, now: Callable[[], datetime]) -> None:
+        self._session = session
+        self._target = target
+        self._now = now
+        self._lock = asyncio.Lock()
+        self._kwargs: dict[str, str] | None = None
+        self._expires: datetime | None = None
+
+    async def client_kwargs(self) -> dict[str, str]:
+        if self._target.role_arn is None:
+            return {}  # current credentials
+        async with self._lock:
+            if (
+                self._kwargs is None
+                or self._expires is None
+                or (self._expires - self._now() < _REFRESH_MARGIN)
+            ):
+                await self._assume()
+            assert self._kwargs is not None
+            return dict(self._kwargs)
+
+    async def _assume(self) -> None:
+        params: dict[str, str] = {
+            "RoleArn": self._target.role_arn or "",
+            "RoleSessionName": ROLE_SESSION_NAME,
+        }
+        if self._target.external_id:
+            params["ExternalId"] = self._target.external_id
+        region = self._target.regions[0] if self._target.regions else "us-east-1"
+        async with self._session.client("sts", region_name=region) as sts:
+            resp = await sts.assume_role(**params)
+        creds = resp["Credentials"]
+        self._kwargs = {
+            "aws_access_key_id": creds["AccessKeyId"],
+            "aws_secret_access_key": creds["SecretAccessKey"],
+            "aws_session_token": creds["SessionToken"],
+        }
+        self._expires = creds.get("Expiration") or self._now() + timedelta(hours=1)
+
+
 class AwsCloudScanner(ScannerPlugin):
+    def __init__(self, now: Callable[[], datetime] | None = None) -> None:
+        self._now = now or (lambda: datetime.now(UTC))
+
     @property
     def scanner_type(self) -> str:
         return "aws-cloud"
@@ -54,8 +117,9 @@ class AwsCloudScanner(ScannerPlugin):
         errors = []
         if not config.aws_accounts:
             errors.append("aws_accounts must not be empty")
-        if not config.aws_regions:
-            errors.append("aws_regions must not be empty")
+        for target in config.aws_targets():
+            if not target.regions:
+                errors.append(f"no regions configured for AWS account {target.account_id}")
         return ValidationResult(valid=not errors, errors=errors)
 
     async def scan(self, config: ScanConfig) -> ScanResult:
@@ -64,26 +128,61 @@ class AwsCloudScanner(ScannerPlugin):
         errors: list[str] = []
 
         session = aioboto3.Session()
+        targets = config.aws_targets()
+        accounts = {t.account_id: _AccountCredentials(session, t, self._now) for t in targets}
 
+        # Up front, per account: get its credentials (assuming the role once) and confirm
+        # with sts:GetCallerIdentity that they really belong to that account. Only verified
+        # accounts are scanned; a skipped account is reported once, never scanned under
+        # another account's label.
+        identities = await asyncio.gather(
+            *(self._verify_account(session, accounts[t.account_id], t) for t in targets)
+        )
+        reachable: list[AwsTarget] = []
+        for target, identity in zip(targets, identities, strict=True):
+            if identity.verified:
+                reachable.append(target)
+                continue
+            errors.append(f"{target.account_id}: {identity.detail}")
+            coverage_gaps.append(
+                CoverageGap(
+                    description=f"Account {target.account_id} was not scanned: {identity.detail}",
+                    affected_regions=target.regions,
+                    severity="error",
+                )
+            )
+
+        jobs: list[tuple[str, str, str]] = []
         tasks = []
-        for account_id in config.aws_accounts:
-            for region in config.aws_regions:
-                for category in config.service_categories:
-                    collectors = _CATEGORY_COLLECTORS.get(category, [])
-                    for service, collector_fn in collectors:
+        for target in reachable:
+            creds = accounts[target.account_id]
+            for category in config.service_categories:
+                for service, collector_fn in _CATEGORY_COLLECTORS.get(category, []):
+                    regions = (
+                        [_GLOBAL_SERVICES[service]]
+                        if service in _GLOBAL_SERVICES
+                        else target.regions
+                    )
+                    for region in regions:
+                        jobs.append((target.account_id, region, service))
                         tasks.append(
                             self._run_collector(
-                                session, collector_fn, service, region, account_id, config
+                                session, creds, collector_fn, service, region, target.account_id
                             )
                         )
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        for result in results:
-            if isinstance(result, Exception):
-                errors.append(str(result))
+        failed_collectors = 0
+        for (account_id, region, service), result in zip(jobs, results, strict=True):
+            if isinstance(result, BaseException):
+                failed_collectors += 1
+                errors.append(f"{account_id}/{region}/{service}: {result}")
             elif isinstance(result, list):
                 all_resources.extend(result)
+
+        all_resources, owner_gaps = _attribute_to_owner(all_resources)
+        coverage_gaps.extend(owner_gaps)
 
         # Deduplicate by ID (deterministic: prefer first seen, sorted by id)
         seen: set[str] = set()
@@ -93,11 +192,10 @@ class AwsCloudScanner(ScannerPlugin):
                 seen.add(r.id)
                 deduped.append(r)
 
-        if errors:
+        if failed_collectors:
             coverage_gaps.append(
                 CoverageGap(
-                    description=f"{len(errors)} collector(s) failed",
-                    severity="warning",
+                    description=f"{failed_collectors} collector(s) failed", severity="warning"
                 )
             )
 
@@ -106,35 +204,90 @@ class AwsCloudScanner(ScannerPlugin):
             resources=deduped,
             coverage_gaps=coverage_gaps,
             errors=errors,
+            scan_identities=list(identities),
         )
+
+    async def _verify_account(
+        self, session: Any, creds: _AccountCredentials, target: AwsTarget
+    ) -> ScanIdentity:
+        """Confirm the credentials for `target` belong to it. Never raises.
+
+        GetCallerIdentity needs no IAM permission and cannot be denied by policy, so this
+        adds nothing to the role Sherpa asks for.
+        """
+        scope = f"aws-account:{target.account_id}"
+        method = "assumed-role" if target.role_arn else "current-credentials"
+        try:
+            kwargs = await creds.client_kwargs()
+        except Exception as exc:
+            return ScanIdentity(
+                scope=scope,
+                method=method,
+                detail=f"cannot assume {target.role_arn}: {exc}",
+            )
+        region = target.regions[0] if target.regions else "us-east-1"
+        try:
+            async with session.client("sts", region_name=region, **kwargs) as sts:
+                who = await sts.get_caller_identity()
+        except Exception as exc:
+            return ScanIdentity(
+                scope=scope, method=method, detail=f"cannot confirm credentials identity: {exc}"
+            )
+        actual, principal = str(who.get("Account", "")), str(who.get("Arn", ""))
+        if actual != target.account_id:
+            hint = (
+                "check AWS_PROFILE / current credentials"
+                if not target.role_arn
+                else (f"check the role mapping for {target.role_arn}")
+            )
+            return ScanIdentity(
+                scope=scope,
+                principal=principal,
+                method=method,
+                detail=(
+                    f"expected account {target.account_id}, but these credentials belong to "
+                    f"{actual or 'an unknown account'} (signed in as {principal or 'unknown'}); "
+                    f"{hint}"
+                ),
+            )
+        return ScanIdentity(scope=scope, principal=principal, method=method, verified=True)
 
     async def _run_collector(
         self,
         session: aioboto3.Session,
+        creds: _AccountCredentials,
         collector_fn: Any,
         service: str,
         region: str,
         account_id: str,
-        config: ScanConfig,
     ) -> list[Resource]:
-        kwargs: dict[str, Any] = {"region_name": region}
-        if config.assume_role_arn:
-            sts_client_kwargs: dict[str, Any] = {}
-            async with session.client("sts", **sts_client_kwargs) as sts:
-                assumed = await sts.assume_role(
-                    RoleArn=config.assume_role_arn,
-                    RoleSessionName="SherpaDiscovery",
-                )
-            creds = assumed["Credentials"]
-            kwargs.update(
-                aws_access_key_id=creds["AccessKeyId"],
-                aws_secret_access_key=creds["SecretAccessKey"],
-                aws_session_token=creds["SessionToken"],
-            )
-
-        # IAM is global — us-east-1 only to avoid duplicates
-        if service == "iam" and region != "us-east-1":
-            return []
-
+        kwargs: dict[str, Any] = {"region_name": region, **await creds.client_kwargs()}
         async with session.client(service, **kwargs) as client:
             return await collector_fn(client, region, account_id)
+
+
+def _attribute_to_owner(resources: list[Resource]) -> tuple[list[Resource], list[CoverageGap]]:
+    """Label each resource with the account in its ARN, not the account we asked.
+
+    A mismatch means the credentials used for one account returned another account's
+    resources (a wrong role mapping), or the resource is shared into the account.
+    """
+    fixed: list[Resource] = []
+    mismatches: dict[tuple[str, str], int] = {}
+    for r in resources:
+        owner = _arn_account(r.id)
+        if owner and owner != r.account_id:
+            mismatches[(r.account_id, owner)] = mismatches.get((r.account_id, owner), 0) + 1
+            r = r.model_copy(update={"account_id": owner})
+        fixed.append(r)
+    gaps = [
+        CoverageGap(
+            description=(
+                f"Scanning account {asked} returned {count} resource(s) owned by account "
+                f"{owner}: check the role mapping for {asked}, or confirm they are shared"
+            ),
+            severity="warning",
+        )
+        for (asked, owner), count in sorted(mismatches.items())
+    ]
+    return fixed, gaps

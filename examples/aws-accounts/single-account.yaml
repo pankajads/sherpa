@@ -1,0 +1,11 @@
+# A single-account company. With one account and no role settings, Sherpa uses your
+# current AWS credentials (profile, SSO session or environment) and assumes no role.
+#
+# Usage: sherpa discover --accounts-file examples/aws-accounts/single-account.yaml
+# Equivalent: sherpa discover --aws-account 123456789012 --regions us-east-1,eu-west-1
+
+default_regions: [us-east-1, eu-west-1]
+
+accounts:
+  - id: "123456789012"
+    name: main

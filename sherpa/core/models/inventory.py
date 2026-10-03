@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -188,10 +189,49 @@ def coverage_gap_sort_key(gap: CoverageGap) -> tuple[int, str, str]:
     return (_SEVERITY_RANK.get(gap.severity, 3), gap.description, _canonical(gap.model_dump()))
 
 
+_ACCOUNT_ID = re.compile(r"^\d{12}$")
+_ROLE_ARN = re.compile(r"^arn:aws[a-z-]*:iam::(\d{12}):role/.+$")
+DEFAULT_ROLE_NAME = "SherpaReadOnly"
+
+
+def _role_arn_account(arn: str) -> str | None:
+    m = _ROLE_ARN.match(arn)
+    return m.group(1) if m else None
+
+
+class AwsAccountSettings(BaseModel):
+    """Per-account overrides; anything unset falls back to the scan-wide setting."""
+
+    name: str = ""  # human label, e.g. "prod"
+    regions: list[str] = Field(default_factory=list)
+    role_arn: str | None = None
+    role_name: str | None = None
+    external_id: str | None = None
+
+    model_config = {"frozen": True}
+
+
+class AwsTarget(BaseModel):
+    """One account, fully resolved: where to scan and how to get credentials."""
+
+    account_id: str
+    name: str = ""
+    regions: list[str]
+    role_arn: str | None  # None = use the current credentials, no role assumption
+    external_id: str | None = None
+
+    model_config = {"frozen": True}
+
+
 class ScanConfig(BaseModel):
     aws_accounts: list[str] = Field(default_factory=list)
-    aws_regions: list[str] = Field(default_factory=list)
+    aws_regions: list[str] = Field(default_factory=list)  # default regions for every account
+    # Legacy: one explicit role ARN. Only valid when scanning a single account.
     assume_role_arn: str | None = None
+    # Role assumed in every account as arn:aws:iam::<account>:role/<aws_role_name>.
+    aws_role_name: str | None = None
+    aws_external_id: str | None = None
+    aws_account_settings: dict[str, AwsAccountSettings] = Field(default_factory=dict)
     github_org: str | None = None
     # Credentials are held in memory only: excluded from every dump/serialisation and
     # masked in repr, so they never reach snapshots, reports, the store or logs.
@@ -203,15 +243,93 @@ class ScanConfig(BaseModel):
 
     model_config = {"frozen": True}
 
+    @model_validator(mode="before")
+    @classmethod
+    def _merge_account_lists(cls, data: Any) -> Any:
+        # Accounts named only in per-account settings are still scanned.
+        if isinstance(data, dict) and data.get("aws_account_settings"):
+            accounts = set(data.get("aws_accounts") or []) | set(data["aws_account_settings"])
+            data = {**data, "aws_accounts": sorted(accounts)}
+        return data
+
     @model_validator(mode="after")
     def at_least_one_source(self) -> ScanConfig:
         if not self.aws_accounts and not self.github_org:
             raise ValueError("At least one of aws_accounts or github_org must be provided")
         return self
 
+    @model_validator(mode="after")
+    def _validate_aws_access(self) -> ScanConfig:
+        bad = [a for a in self.aws_accounts if not _ACCOUNT_ID.match(a)]
+        if bad:
+            raise ValueError(f"AWS account IDs must be 12 digits: {', '.join(bad)}")
+        if self.assume_role_arn and len(self.aws_accounts) > 1:
+            raise ValueError(
+                "assume_role_arn names one role, so it can only be used with a single account; "
+                "use aws_role_name or per-account role_arn for several accounts"
+            )
+        for target in self.aws_targets():
+            if target.role_arn is None:
+                continue
+            owner = _role_arn_account(target.role_arn)
+            if owner is None:
+                raise ValueError(f"Not an IAM role ARN: {target.role_arn}")
+            if owner != target.account_id:
+                raise ValueError(
+                    f"Role {target.role_arn} belongs to account {owner}, not {target.account_id}"
+                )
+        return self
+
+    def aws_targets(self) -> list[AwsTarget]:
+        """Resolve every AWS account to its regions and credential source, sorted by account.
+
+        Role precedence per account: settings.role_arn > settings.role_name > aws_role_name
+        > assume_role_arn (single account) > current credentials (single account only)
+        > the default role name (several accounts, so no account is scanned with another's
+        credentials).
+        """
+        targets = []
+        multi = len(self.aws_accounts) > 1
+        for account in sorted(self.aws_accounts):
+            s = self.aws_account_settings.get(account, AwsAccountSettings())
+            role_name = s.role_name or self.aws_role_name
+            role_arn = s.role_arn
+            if role_arn is None and role_name:
+                role_arn = f"arn:aws:iam::{account}:role/{role_name}"
+            if role_arn is None and self.assume_role_arn:
+                role_arn = self.assume_role_arn
+            if role_arn is None and multi:
+                role_arn = f"arn:aws:iam::{account}:role/{DEFAULT_ROLE_NAME}"
+            targets.append(
+                AwsTarget(
+                    account_id=account,
+                    name=s.name,
+                    regions=sorted(set(s.regions or self.aws_regions)),
+                    role_arn=role_arn,
+                    external_id=s.external_id or self.aws_external_id,
+                )
+            )
+        return targets
+
     def github_token_value(self) -> str | None:
         """Return the raw GitHub token for authenticating API clients. Never persist it."""
         return self.github_token.get_secret_value() if self.github_token else None
+
+
+class ScanIdentity(BaseModel):
+    """Who scanned what: the verified principal behind each scanned scope (audit trail).
+
+    `scope` names what was scanned, e.g. "aws-account:111111111111". `verified` is False when
+    the scope was skipped because its identity could not be confirmed; `detail` says why.
+    """
+
+    scope: str
+    principal: str = ""  # e.g. arn:aws:sts::111111111111:assumed-role/SherpaReadOnly/...
+    method: str = ""  # e.g. "assumed-role", "current-credentials"
+    verified: bool = False
+    detail: str = ""
+
+    model_config = {"frozen": True}
 
 
 class InventorySnapshot(BaseModel):
@@ -225,8 +343,19 @@ class InventorySnapshot(BaseModel):
     workloads: list[Workload] = Field(default_factory=list)
     coverage_gaps: list[CoverageGap] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+    scan_identities: list[ScanIdentity] = Field(default_factory=list)
 
     model_config = {"frozen": True}
+
+    @field_validator("scan_identities")
+    @classmethod
+    def _sort_identities(cls, v: list[ScanIdentity]) -> list[ScanIdentity]:
+        return sorted(v, key=lambda i: (i.scope, i.principal))
+
+    @property
+    def unverified_scopes(self) -> list[str]:
+        """Scopes skipped because their identity could not be confirmed."""
+        return [i.scope for i in self.scan_identities if not i.verified]
 
     @field_validator("resources", "repositories", "pipelines")
     @classmethod

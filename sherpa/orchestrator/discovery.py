@@ -58,12 +58,14 @@ async def run_discovery(
     all_repos: list[Repository] = []
     all_pipelines: list[Pipeline] = []
     all_errors: list[str] = []
+    all_identities = []
 
     # 3a. Cloud scanner first
     if config.aws_accounts:
         cloud_result = await aws_scanner.scan(config)
         all_resources.extend(cloud_result.resources)
         all_errors.extend(cloud_result.errors)
+        all_identities.extend(cloud_result.scan_identities)
 
     # 3b. Code + pipeline scanners in parallel
     if config.github_org:
@@ -97,6 +99,7 @@ async def run_discovery(
         workloads=workloads,
         coverage_gaps=coverage_gaps,
         errors=all_errors,
+        scan_identities=all_identities,
     ).close()
 
     store.save_snapshot(closed)
@@ -146,6 +149,15 @@ def _render_report(snapshot: InventorySnapshot) -> str:
         for gap in snapshot.coverage_gaps:
             severity_marker = {"error": "🔴", "warning": "🟡", "info": "🔵"}.get(gap.severity, "•")
             lines.append(f"- {severity_marker} {gap.description}")
+        lines.append("")
+
+    if snapshot.scan_identities:
+        lines += ["## Scanned as", ""]
+        for ident in snapshot.scan_identities:
+            if ident.verified:
+                lines.append(f"- ✅ `{ident.scope}` — `{ident.principal}` ({ident.method})")
+            else:
+                lines.append(f"- ❌ `{ident.scope}` — not scanned: {ident.detail}")
         lines.append("")
 
     if snapshot.errors:

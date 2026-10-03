@@ -1,5 +1,7 @@
 from .enums import DependencyPlane, DependencyType, IaCType, MigrationPath, ResourceType
 from .inventory import (
+    AwsAccountSettings,
+    AwsTarget,
     CoverageGap,
     InventorySnapshot,
     PackageDependency,
@@ -9,11 +11,14 @@ from .inventory import (
     Resource,
     ResourceDependency,
     ScanConfig,
+    ScanIdentity,
     Workload,
 )
 from .naming import NamingConvention
 
 __all__ = [
+    "AwsAccountSettings",
+    "AwsTarget",
     "CoverageGap",
     "DependencyPlane",
     "DependencyType",
@@ -29,5 +34,6 @@ __all__ = [
     "ResourceDependency",
     "ResourceType",
     "ScanConfig",
+    "ScanIdentity",
     "Workload",
 ]

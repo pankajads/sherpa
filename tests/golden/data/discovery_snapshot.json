@@ -2,13 +2,16 @@
   "completed_at": "<timestamp>",
   "config": {
     "assume_role_arn": null,
+    "aws_account_settings": {},
     "aws_accounts": [
       "123456789012"
     ],
+    "aws_external_id": null,
     "aws_regions": [
       "us-east-1",
       "eu-west-1"
     ],
+    "aws_role_name": null,
     "github_org": "acme",
     "naming_convention": {
       "name_part": "first",
@@ -572,6 +575,15 @@
       "region": "us-east-1",
       "resource_type": "aws::sqs::queue",
       "tags": {}
+    }
+  ],
+  "scan_identities": [
+    {
+      "detail": "",
+      "method": "current-credentials",
+      "principal": "arn:aws:iam::123456789012:user/sherpa-scanner",
+      "scope": "aws-account:123456789012",
+      "verified": true
     }
   ],
   "snapshot_id": "<snapshot-id>",

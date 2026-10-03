@@ -66,16 +66,16 @@ class TestScanConfig:
         assert config.github_org == "acme"
 
     def test_default_service_categories_set(self):
-        config = ScanConfig(aws_accounts=["123"])
+        config = ScanConfig(aws_accounts=["123456789012"])
         assert "compute" in config.service_categories
 
     def test_default_naming_convention_attached(self):
-        config = ScanConfig(aws_accounts=["123"])
+        config = ScanConfig(aws_accounts=["123456789012"])
         assert isinstance(config.naming_convention, NamingConvention)
 
     def test_custom_naming_convention_stored(self):
         naming = NamingConvention(workload_tag_keys=["Team"], unassigned_label="no-team")
-        config = ScanConfig(aws_accounts=["123"], naming_convention=naming)
+        config = ScanConfig(aws_accounts=["123456789012"], naming_convention=naming)
         assert config.naming_convention.unassigned_label == "no-team"
 
 
@@ -153,13 +153,13 @@ class TestNamingConvention:
 
 class TestInventorySnapshot:
     def test_snapshot_starts_open(self):
-        config = ScanConfig(aws_accounts=["123"])
+        config = ScanConfig(aws_accounts=["123456789012"])
         snap = InventorySnapshot(config=config)
         assert not snap.is_closed
         assert snap.completed_at is None
 
     def test_close_produces_new_frozen_snapshot(self):
-        config = ScanConfig(aws_accounts=["123"])
+        config = ScanConfig(aws_accounts=["123456789012"])
         snap = InventorySnapshot(config=config)
         closed = snap.close()
         assert closed.is_closed
@@ -167,7 +167,7 @@ class TestInventorySnapshot:
         assert not snap.is_closed  # original unchanged
 
     def test_resource_count(self):
-        config = ScanConfig(aws_accounts=["123"])
+        config = ScanConfig(aws_accounts=["123456789012"])
         r = make_resource()
         snap = InventorySnapshot(config=config, resources=[r])
         assert snap.resource_count == 1
