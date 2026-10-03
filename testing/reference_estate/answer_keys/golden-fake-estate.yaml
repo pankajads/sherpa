@@ -1,0 +1,131 @@
+# Answer key for the golden fake estate (tests/golden/fake_estate.py): 1 AWS account, 2 regions,
+# 3 GitHub repos. Written from the estate's design, not from Sherpa's output.
+#
+# Score a snapshot:  python -m testing.reference_estate.score SNAPSHOT.json <this file>
+
+version: 1
+estate: golden-fake-estate
+description: >
+  Three applications (payments, checkout, reporting) plus shared networking and a CI role,
+  across us-east-1 and eu-west-1, with one deploy workflow.
+
+scenarios:
+  - id: tag-inference
+    description: Workload taken from an Application or Team tag
+  - id: name-inference
+    description: Untagged resource; workload must come from its name
+  - id: cross-region
+    description: The same workload spans us-east-1 and eu-west-1
+  - id: iac-reference
+    description: A repo's Terraform references deployed resources by ARN
+  - id: oidc-deploy-role
+    description: The deploy workflow assumes a specific role (role-to-assume)
+  - id: pipeline-over-linking
+    description: >
+      Finding C-6: an account ID in a workflow must not link the pipeline to every
+      resource in the account
+
+resources:
+  # ---- payments (us-east-1)
+  - key: payments-api
+    type: aws::ec2::instance
+    match: {id: "arn:aws:ec2:us-east-1:123456789012:instance/i-0aaa1111"}
+    workload: payments
+    scenario: tag-inference
+  - key: payments-db-sg
+    type: aws::ec2::security-group
+    match: {id: "arn:aws:ec2:us-east-1:123456789012:security-group/sg-0db"}
+    workload: payments
+  - key: payments-processor
+    type: aws::lambda::function
+    match: {id: "arn:aws:lambda:us-east-1:123456789012:function:payments-processor"}
+    workload: payments
+    scenario: name-inference
+  - key: payments-db
+    type: aws::rds::db-instance
+    match: {id: "arn:aws:rds:us-east-1:123456789012:db:payments-db"}
+    workload: payments
+  - key: payments-receipts
+    type: aws::s3::bucket
+    match: {id: "arn:aws:s3:::payments-receipts"}
+    workload: payments
+  - key: payments-queue
+    type: aws::sqs::queue
+    # Real SQS ARN format: no "queue/" segment.
+    match: {id: "arn:aws:sqs:us-east-1:123456789012:payments-queue"}
+    workload: payments
+  - key: payments-lambda-role
+    type: aws::iam::role
+    match: {id: "arn:aws:iam::123456789012:role/payments-lambda-role"}
+    workload: payments
+
+  # ---- checkout (us-east-1)
+  - key: checkout-web
+    type: aws::ec2::instance
+    match: {name: checkout-web}          # generated ID in a real estate: match by name
+    workload: checkout
+  - key: checkout-web-sg
+    type: aws::ec2::security-group
+    match: {id: "arn:aws:ec2:us-east-1:123456789012:security-group/sg-0web"}
+    workload: checkout
+  - key: checkout-cluster
+    type: aws::ecs::cluster
+    match: {id: "arn:aws:ecs:us-east-1:123456789012:cluster/checkout-cluster"}
+    workload: checkout
+  - key: checkout-assets
+    type: aws::s3::bucket
+    match: {id: "arn:aws:s3:::checkout-assets"}
+    workload: checkout
+  - key: checkout-events
+    type: aws::sns::topic
+    match: {id: "arn:aws:sns:us-east-1:123456789012:checkout-events"}
+    workload: checkout
+
+  # ---- reporting (eu-west-1)
+  - key: reporting-batch
+    type: aws::ec2::instance
+    match: {tag: {Team: reporting}}      # match by tag
+    workload: reporting
+    scenario: cross-region
+  - key: reporting-events
+    type: aws::dynamodb::table
+    match: {id: "arn:aws:dynamodb:eu-west-1:123456789012:table/reporting-events"}
+    workload: reporting
+  - key: reporting-exports
+    type: aws::s3::bucket
+    match: {id: "arn:aws:s3:::reporting-exports"}
+    workload: reporting
+
+  # ---- shared platform
+  - key: shared-vpc
+    type: aws::ec2::vpc
+    match: {id: "arn:aws:ec2:us-east-1:123456789012:vpc/vpc-0main"}
+    workload: shared
+  - key: ci-deploy-role
+    type: aws::iam::role
+    match: {id: "arn:aws:iam::123456789012:role/ci-deploy-role"}
+    workload: ci
+
+links:
+  # The payments repo's Terraform references these deployed resources by ARN.
+  - {source: github.com/acme/payments-service, target: payments-db, type: declares, scenario: iac-reference}
+  - {source: github.com/acme/payments-service, target: payments-queue, type: declares}
+  # Its workflow file names the role it deploys with.
+  - {source: github.com/acme/payments-service, target: ci-deploy-role, type: declares}
+
+  # The deploy workflow assumes ci-deploy-role; its terraform apply manages no resources.
+  - source: github.com/acme/payments-service/.github/workflows/deploy.yml
+    target: ci-deploy-role
+    type: deploys_to
+    scenario: oidc-deploy-role
+
+  # Known trap (C-6): the workflow's account ID must not link it to unrelated workloads.
+  - source: github.com/acme/payments-service/.github/workflows/deploy.yml
+    target: checkout-web
+    type: deploys_to
+    present: false
+    scenario: pipeline-over-linking
+  - source: github.com/acme/payments-service/.github/workflows/deploy.yml
+    target: reporting-batch
+    type: deploys_to
+    present: false
